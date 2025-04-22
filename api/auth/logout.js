@@ -1,4 +1,4 @@
-const supabase = require("../../lib/supabaseClient");
+const { supabase } = require("../../lib/supabaseClient");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {

@@ -1,10 +1,19 @@
-const { createClient } = require("@supabase/supabase-js");
-const supabase = require("../../lib/supabaseClient");
+const { supabase, supabaseAdmin, getSupabaseWithToken } = require("../../lib/supabaseClient");
 
 // Fungsi sederhana untuk validasi format email
 function isValidEmail(email) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return regex.test(email);
+}
+
+function isStrongPassword(password) {
+  const minLength = password.length >= 8;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSymbol = /[^A-Za-z0-9]/.test(password);
+
+  return minLength && hasUpper && hasLower && hasNumber && hasSymbol;
 }
 
 module.exports = async (req, res) => {
@@ -24,8 +33,35 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: true, message: `Email address "${email}" is invalid` });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: true, message: "Password must be at least 6 characters long." });
+    if (password.length < 8) {
+      return res.status(400).json({ error: true, message: "Password must be at least 8 characters long." });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ error: true, message: "Password must be at least 8 characters long." });
+    }
+
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        error: true,
+        message: "Password must contain uppercase, lowercase, number, and special character.",
+      });
+    }
+
+    const { data: users, error: checkError } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+
+    if (checkError) throw checkError;
+
+    const foundUser = users?.users?.find((user) => user.email === email);
+
+    if (foundUser) {
+      return res.status(404).json({
+        error: true,
+        message: "Account already has been registered",
+      });
     }
 
     // Step 1: Register user di Supabase Auth
@@ -56,18 +92,17 @@ module.exports = async (req, res) => {
     }
 
     // Step 2: Buat Supabase client baru dengan access token user
-    const supabaseWithAuth = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    });
+    const supabaseWithAuth = getSupabaseWithToken(accessToken);
 
     // Step 3: Insert ke tabel 'profiles' (id otomatis akan pakai auth.uid())
-    const { error: profileError } = await supabaseWithAuth.from("profiles").insert([{ name, email }]);
+    const { error: profileError } = await supabaseWithAuth.from("profiles").insert([{ id: user.id, name, email }]);
 
     if (profileError) throw profileError;
+
+    if (profileError) {
+      console.error("❌ Error insert profiles:", profileError);
+      throw profileError;
+    }
 
     // Step 4: Kirim respons sukses
     res.status(200).json({
