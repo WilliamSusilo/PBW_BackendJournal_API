@@ -13,7 +13,6 @@ module.exports = async (req, res) => {
     }
 
     const token = authHeader.split(" ")[1];
-
     const supabase = getSupabaseWithToken(token);
 
     const {
@@ -25,23 +24,47 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: true, message: "Invalid or expired token" });
     }
 
-    const { type, date, number, approver, due_date, status, tags, items, tax_calculation_method, ppn_percentage, pph_type, pph_percentage } = req.body;
+    const { type, date, approver, due_date, status, tags, items, tax_calculation_method, ppn_percentage, pph_type, pph_percentage } = req.body;
 
-    if (!number || !date || !items || items.length === 0) {
+    if (!date || !items || items.length === 0) {
       return res.status(400).json({
         error: true,
-        message: "Invoice number, date, and at least one item are required",
+        message: "Date and at least one item are required",
       });
     }
 
-    const dpp = items.reduce((sum, item) => {
+    // Fetch latest invoice number
+    const { data: latestInvoice, error: fetchError } = await supabase.from("invoices").select("number").order("number", { ascending: true }).limit(1).single();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
+      return res.status(500).json({ error: true, message: "Failed to fetch latest invoice number: " + fetchError.message });
+    }
+
+    let nextNumber = "1"; // default
+    if (latestInvoice && latestInvoice.number !== undefined && latestInvoice.number !== null) {
+      const lastNumberInt = parseInt(latestInvoice.number, 10);
+      nextNumber = lastNumberInt + 1;
+    }
+
+    // Update items with total_per_item
+    const updatedItems = items.map((item) => {
       const qty = Number(item.qty) || 0;
       const price = Number(item.price) || 0;
-      return sum + qty * price;
-    }, 0);
+      const total_per_item = qty * price;
 
+      return {
+        ...item,
+        total_per_item,
+      };
+    });
+
+    const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+    // Calculate PPN and PPh
     const ppn = (dpp * (ppn_percentage || 0)) / 100;
     const pph = (dpp * (pph_percentage || 0)) / 100;
+
+    // Final grand total
     const grand_total = dpp + ppn - pph;
 
     const { error } = await supabase.from("invoices").insert([
@@ -49,12 +72,12 @@ module.exports = async (req, res) => {
         user_id: user.id,
         type,
         date,
-        number,
+        number: nextNumber,
         approver,
         due_date,
         status,
         tags,
-        items,
+        items: updatedItems,
         tax_calculation_method,
         ppn_percentage,
         pph_type,

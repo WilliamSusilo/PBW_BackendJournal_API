@@ -1,6 +1,6 @@
 const { supabase, supabaseAdmin, getSupabaseWithToken } = require("../../lib/supabaseClient");
 
-// Fungsi sederhana untuk validasi format email
+// Email validation
 function isValidEmail(email) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return regex.test(email);
@@ -24,17 +24,17 @@ module.exports = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validasi input
+    // Input validation
     if (!name || !email || !password) {
       return res.status(400).json({ error: true, message: "Name, email, and password are required." });
     }
 
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: true, message: `Email address "${email}" is invalid` });
+    if (typeof name !== "string" || name.trim() === "" || name.length > 100) {
+      return res.status(400).json({ error: true, message: "Name must be a non-empty string with a maximum of 100 characters" });
     }
 
-    if (password.length < 8) {
-      return res.status(400).json({ error: true, message: "Password must be at least 8 characters long." });
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: true, message: `Email address "${email}" is invalid` });
     }
 
     if (password.length < 8) {
@@ -64,12 +64,13 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 1: Register user di Supabase Auth
+    // Register in Supabase Auth
     const { data, error: signupError } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { name }, // Ini akan tersimpan di auth.users -> user_metadata
+        data: { name }, // It will be save in auth.users -> user_metadata
+        emailRedirectTo: "https://your-frontend.com/email-confirmed", // Direct to other page after confirm emails
       },
     });
 
@@ -82,7 +83,7 @@ module.exports = async (req, res) => {
       throw new Error("Sign up failed: user not returned.");
     }
 
-    // Jika session tidak ada, artinya user harus konfirmasi email
+    // If there is no session, user must confirm the email
     if (!accessToken) {
       return res.status(200).json({
         error: false,
@@ -91,28 +92,15 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: Buat Supabase client baru dengan access token user
     const supabaseWithAuth = getSupabaseWithToken(accessToken);
 
-    // Step 3: Insert ke tabel 'profiles' (id otomatis akan pakai auth.uid())
+    // Insert to'profiles' table (id will automatically use auth.uid())
     const { error: profileError } = await supabaseWithAuth.from("profiles").insert([{ id: user.id, name, email }]);
 
     if (profileError) throw profileError;
-
-    if (profileError) {
-      console.error("❌ Error insert profiles:", profileError);
-      throw profileError;
-    }
-
-    // Step 4: Kirim respons sukses
-    res.status(200).json({
-      error: false,
-      message: "User successfully registered!",
-      userId: user.id,
-    });
   } catch (error) {
-    console.error("❌ Error saat register:", JSON.stringify(error, null, 2));
-    res.status(400).json({
+    console.error("Error while  register:", JSON.stringify(error, null, 2));
+    res.status(500).json({
       error: true,
       message: error.message || JSON.stringify(error),
     });

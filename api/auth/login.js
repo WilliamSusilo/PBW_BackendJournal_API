@@ -1,5 +1,20 @@
 const { supabase, supabaseAdmin } = require("../../lib/supabaseClient");
 
+function isValidEmail(email) {
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return regex.test(email);
+}
+
+function isStrongPassword(password) {
+  const minLength = password.length >= 8;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSymbol = /[^A-Za-z0-9]/.test(password);
+
+  return minLength && hasUpper && hasLower && hasNumber && hasSymbol;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({ error: true, message: "Method not allowed" });
@@ -7,11 +22,6 @@ module.exports = async (req, res) => {
 
   try {
     const { email, password } = req.body;
-
-    const isValidEmail = (email) => {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      return emailRegex.test(email);
-    };
 
     if (!email || !isValidEmail(email)) {
       return res.status(400).json({
@@ -24,6 +34,13 @@ module.exports = async (req, res) => {
       return res.status(400).json({
         error: true,
         message: "Password must be at least 8 characters long.",
+      });
+    }
+
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        error: true,
+        message: "Password must contain uppercase, lowercase, number, and special character.",
       });
     }
 
@@ -43,24 +60,21 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: Jika terdaftar, lanjut login
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      // Tambahkan detil error jika login gagal
       return res.status(401).json({
         error: true,
         message: "Invalid password or account is not confirmed yet.",
       });
     }
 
-    // Step 3: Return success
     res.status(200).json({
       error: false,
-      message: "Login successful!",
+      message: "Login successful",
       user: data.user,
       session: data.session,
     });

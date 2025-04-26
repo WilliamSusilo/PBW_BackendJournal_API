@@ -24,34 +24,55 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: true, message: "Invalid or expired token" });
     }
 
-    const { type, date, number, tracking_number, carrier, shipping_date, due_date, status, tags, items } = req.body;
+    const { type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items } = req.body;
 
-    if (!number || !date || !items || items.length === 0) {
+    if (!date || !items || items.length === 0) {
       return res.status(400).json({
         error: true,
-        message: "Shipment number, date, and at least one item are required",
+        message: "Date and at least one item are required",
       });
     }
 
-    const grand_total = items.reduce((sum, item) => {
+    // Fetch latest shipment number
+    const { data: latestShipment, error: fetchError } = await supabase.from("shipments").select("number").order("number", { ascending: true }).limit(1).single();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
+      return res.status(500).json({ error: true, message: "Failed to fetch latest shipment number: " + fetchError.message });
+    }
+
+    let nextNumber = "1"; // default
+    if (latestShipment && latestShipment.number !== undefined && latestShipment.number !== null) {
+      const lastNumberInt = parseInt(latestShipment.number, 10);
+      nextNumber = lastNumberInt + 1;
+    }
+
+    const updatedItems = items.map((item) => {
       const qty = Number(item.qty) || 0;
-      const price = Number(item.price) || 0;
-      return sum + qty * price;
-    }, 0);
+      const unit_price = Number(item.price) || 0;
+      const total_per_item = qty * unit_price;
+
+      return {
+        ...item,
+        total_per_item,
+      };
+    });
+
+    // Final grand total
+    const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
     const { error } = await supabase.from("shipments").insert([
       {
         user_id: user.id,
         type,
         date,
-        number,
+        number: nextNumber,
         tracking_number,
         carrier,
         shipping_date,
         due_date,
         status,
         tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
-        items,
+        items: updatedItems,
         grand_total,
       },
     ]);
