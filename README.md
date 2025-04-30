@@ -90,6 +90,35 @@ vercel
 
 Ikuti instruksi di terminal untuk memilih scope, project, dan link ke dashboard Vercel.
 
+## 🔄 API Endpoints & Actions
+
+Semua API tersedia di route: `/api/jurnal`
+
+### Supported HTTP Methods & Actions
+
+| Method | Action      | Deskripsi                                                               |
+|--------|-------------|-------------------------------------------------------------------------|
+| POST   | `register`  | Menambahkan data jurnal baru ke dalam database.                         |
+| PATCH  | `perpanjang`| Memperpanjang tanggal jatuh tempo dari entri jurnal tertentu.           |
+| GET    | `status`    | Mengecek status API untuk kebutuhan health check.                       |
+
+> Pastikan parameter `action` dikirim melalui **query string** (GET) atau **body** (POST/PATCH) sesuai dengan method yang digunakan.
+
+### Contoh Penggunaan:
+
+```bash
+GET /api/jurnal?action=status
+```
+```bash
+POST /api/jurnal
+Content-Type: application/json
+
+{
+  "action": "register",
+  ...
+}
+```
+
 ## 🧹 Additional Notes
 
 - API routes didefinisikan dalam folder `api/` dan otomatis tersedia via route `/api/{your-file}`.
