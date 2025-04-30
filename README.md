@@ -99,8 +99,8 @@ Semua API tersedia di route: `/api/jurnal`
 | Method | Action      | Deskripsi                                                               |
 |--------|-------------|-------------------------------------------------------------------------|
 | POST   | `register`  | Menambahkan data jurnal baru ke dalam database.                         |
-| PATCH  | `perpanjang`| Memperpanjang tanggal jatuh tempo dari entri jurnal tertentu.           |
-| GET    | `status`    | Mengecek status API untuk kebutuhan health check.                       |
+| PATCH  | `approve`   | Menyetujui transaksi pengeluaran.                                       | 
+| GET    | `status`    | Mengecek status pembayaran atas penjualan barang.                       |
 
 > Pastikan parameter `action` dikirim melalui **query string** (GET) atau **body** (POST/PATCH) sesuai dengan method yang digunakan.
 
