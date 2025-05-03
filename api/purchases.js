@@ -40,18 +40,32 @@ module.exports = async (req, res) => {
           });
         }
 
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
         // Fetch latest invoice number
-        const { data: latestInvoice, error: fetchError } = await supabase.from("invoices").select("number").order("number", { ascending: true }).limit(1).single();
+        const { data: latestInvoice, error: fetchError } = await supabase.from("invoices").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest invoice number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestInvoice && latestInvoice.number !== undefined && latestInvoice.number !== null) {
-          const lastNumberInt = parseInt(latestInvoice.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestInvoice && latestInvoice.length > 0) {
+          const lastNumber = latestInvoice[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         // Update items with total_per_item
         const updatedItems = items.map((item) => {
@@ -142,18 +156,32 @@ module.exports = async (req, res) => {
           });
         }
 
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
         // Fetch latest offer number
-        const { data: latestOffer, error: fetchError } = await supabase.from("offers").select("number").order("number", { ascending: true }).limit(1).single();
+        const { data: latestOffer, error: fetchError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest offer number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestOffer && latestOffer.number !== undefined && latestOffer.number !== null) {
-          const lastNumberInt = parseInt(latestOffer.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestOffer && latestOffer.length > 0) {
+          const lastNumber = latestOffer[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
@@ -231,18 +259,32 @@ module.exports = async (req, res) => {
           });
         }
 
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
         // Fetch latest order number
-        const { data: latestOrder, error: fetchError } = await supabase.from("orders").select("number").order("number", { ascending: true }).limit(1).single();
+        const { data: latestOrder, error: fetchError } = await supabase.from("orders").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest order number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestOrder && latestOrder.number !== undefined && latestOrder.number !== null) {
-          const lastNumberInt = parseInt(latestOrder.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestOrder && latestOrder.length > 0) {
+          const lastNumber = latestOrder[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
@@ -319,18 +361,32 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Fetch latest request number
-        const { data: latestRequest, error: fetchError } = await supabase.from("requests").select("number").order("number", { ascending: true }).limit(1).single();
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
+        // Fetch latest request number for the same prefix
+        const { data: latestRequests, error: fetchError } = await supabase.from("requests").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest request number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestRequest && latestRequest.number !== undefined && latestRequest.number !== null) {
-          const lastNumberInt = parseInt(latestRequest.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestRequests && latestRequests.length > 0) {
+          const lastNumber = latestRequests[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
@@ -408,18 +464,32 @@ module.exports = async (req, res) => {
           });
         }
 
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
         // Fetch latest shipment number
-        const { data: latestShipment, error: fetchError } = await supabase.from("shipments").select("number").order("number", { ascending: true }).limit(1).single();
+        const { data: latestShipment, error: fetchError } = await supabase.from("shipments").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest shipment number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestShipment && latestShipment.number !== undefined && latestShipment.number !== null) {
-          const lastNumberInt = parseInt(latestShipment.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestShipment && latestShipment.length > 0) {
+          const lastNumber = latestShipment[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
@@ -784,7 +854,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
@@ -822,7 +892,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
@@ -860,7 +930,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
@@ -898,7 +968,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
@@ -936,7 +1006,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
@@ -974,7 +1044,7 @@ module.exports = async (req, res) => {
 
       //   if (status) query = query.eq("status", status);
 
-      //   query = query.order("date", { ascending: true });
+      //   query = query.order("date", { ascending: false });
 
       //   const { data, error } = await query;
 

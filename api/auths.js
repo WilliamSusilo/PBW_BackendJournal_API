@@ -46,10 +46,6 @@ module.exports = async (req, res) => {
         const { data, error: signupError } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            data: { name },
-            emailRedirectTo: "https://prabaraja-webapp.vercel.app/login",
-          },
         });
         if (signupError) throw signupError;
 
@@ -114,12 +110,18 @@ module.exports = async (req, res) => {
         }
 
         const { email } = body;
-        if (!email) return res.status(400).json({ error: true, message: "Email is required" });
+        if (!email || !isValidEmail(email)) return res.status(400).json({ error: true, message: "Please provide a valid email address." });
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://yourfrontend.com/confirm-email",
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email,
+          options: {
+            emailRedirectTo: "https://yourfrontend.com/confirm-email",
+          },
         });
-        if (error) throw error;
+        if (error) {
+          return res.status(500).json({ error: true, message: "Failed to resend confirmation email: " + error.message });
+        }
 
         return res.status(200).json({ error: false, message: "Confirmation email sent" });
       }
@@ -130,14 +132,30 @@ module.exports = async (req, res) => {
           return res.status(405).json({ error: true, message: "Method not allowed. Use POST for resetPass." });
         }
 
-        const { access_token, new_password } = body;
-        if (!access_token || !new_password) return res.status(400).json({ error: true, message: "Access token and new password are required" });
+        const { access_token, refresh_token, new_password } = body;
+        if (!access_token || !refresh_token || !new_password) return res.status(400).json({ error: true, message: "Access token, refresh token, and new password are required" });
 
         if (!isStrongPassword(new_password)) return res.status(400).json({ error: true, message: "Password must contain uppercase, lowercase, number, and special character." });
 
-        const supabaseWithAuth = getSupabaseWithToken(access_token);
-        const { error } = await supabaseWithAuth.auth.updateUser({ password: new_password });
-        if (error) throw error;
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+
+        if (sessionError) {
+          return res.status(401).json({
+            error: true,
+            message: "Failed to establish session: " + sessionError.message,
+          });
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({ password: new_password });
+        if (updateError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update password: " + updateError.message,
+          });
+        }
 
         return res.status(200).json({ error: false, message: "Password updated successfully" });
       }
@@ -151,9 +169,7 @@ module.exports = async (req, res) => {
         const { email } = body;
         if (!email || !isValidEmail(email)) return res.status(400).json({ error: true, message: "Please provide a valid email address." });
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://your-frontend.com/reset-password",
-        });
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) throw error;
 
         return res.status(200).json({ error: false, message: "Reset password email sent. Please check your inbox." });

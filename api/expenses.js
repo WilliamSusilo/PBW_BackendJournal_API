@@ -23,24 +23,40 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
+
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
         const { date, category, beneficiary, status, items } = req.body;
+
         if (!date || !category || !beneficiary || !status || !items || items.length === 0) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const { data: latestExpense, error: fetchError } = await supabase.from("expenses").select("number").order("number", { ascending: true }).limit(1).single();
+        const requestDate = new Date(date);
+        const requestMonth = requestDate.getMonth() + 1; // 0-based
+        const requestYear = requestDate.getFullYear();
+
+        // Generate prefix for this month: YYYYMM
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
+        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
+
+        const { data: latestExpense, error: fetchError } = await supabase.from("expenses").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         if (fetchError && fetchError.code !== "PGRST116") {
           return res.status(500).json({ error: true, message: "Failed to fetch latest expense number: " + fetchError.message });
         }
 
-        let nextNumber = "1"; // default
-        if (latestExpense && latestExpense.number !== undefined && latestExpense.number !== null) {
-          const lastNumberInt = parseInt(latestExpense.number, 10);
-          nextNumber = lastNumberInt + 1;
+        // Determine the next counter based on latest request
+        let counter = 1;
+        if (latestExpense && latestExpense.length > 0) {
+          const lastNumber = latestExpense[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+          counter = lastCounter + 1;
         }
+
+        // Combine prefix + counter
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
@@ -175,7 +191,7 @@ module.exports = async (req, res) => {
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: true });
+        query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
