@@ -26,9 +26,9 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { account_name, account_code, bank_name, bank_number, balance } = req.body;
+        const { account_name, account_code, account_type, bank_name, bank_number, balance, type } = req.body;
 
-        if (!account_name || !account_code || !bank_name || !bank_number || !balance) {
+        if (!account_name || !account_code || !account_type || !bank_name || !bank_number || !balance || !type) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
@@ -55,10 +55,12 @@ module.exports = async (req, res) => {
             number: newNumber,
             account_name,
             account_code,
+            account_type,
             bank_name,
             bank_number,
             balance: Number(balance),
             status: "Active",
+            type,
           },
         ]);
 
@@ -88,9 +90,9 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { id, account_name, bank_name, account_number, balance } = req.body;
+        const { id, account_name, account_type, bank_name, account_number, type, balance } = req.body;
 
-        if (!id || !account_name || !bank_name || !account_number || balance === undefined) {
+        if (!id || !account_name || !account_type || !bank_name || !account_number || !type || balance === undefined) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
@@ -98,9 +100,11 @@ module.exports = async (req, res) => {
           .from("cashbank")
           .update({
             account_name,
+            account_type,
             bank_name,
             bank_number: account_number,
             balance: Number(balance),
+            type,
           })
           .eq("id", id);
 
