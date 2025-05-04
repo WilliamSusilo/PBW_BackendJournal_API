@@ -123,7 +123,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Expense approved successfully" });
       }
 
-      // Delete Endpoint
+      // Delete Expense Endpoint
       case "deleteExpense": {
         if (method !== "DELETE") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteExpense." });
