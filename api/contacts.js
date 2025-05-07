@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const prefix = 100;
+        const prefix = 1000;
 
         const { data: latestContact, error: fetchError } = await supabase.from("contacts").select("number").gte("number", prefix).order("number", { ascending: false }).limit(1);
 
@@ -274,7 +274,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: contacts });
       }
 
-      // Get All Contacts Endpoint
+      // Get Contact Person Endpoint
       case "getContactPerson": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getContactPerson." });
