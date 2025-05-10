@@ -741,6 +741,102 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Request rejected successfully" });
       }
 
+      case "sendRequestToOffer": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendRequestToOffer." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get data from request table
+        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Completed").single();
+
+        if (fetchError || !request) {
+          return res.status(404).json({ error: true, message: "Request not found or not completed" });
+        }
+
+        // 2. Generate new offer number (similar with addOffer endpoint)
+        const requestDate = new Date(request.date);
+        const requestMonth = requestDate.getMonth() + 1;
+        const requestYear = requestDate.getFullYear();
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10);
+        const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        if (offerError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create offer from request: " + offerError.message,
+          });
+        }
+
+        let counter = 1;
+        if (latestOffer && latestOffer.length > 0) {
+          const lastNumber = latestOffer[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 3. Calculate again the grand total (optional)
+        const updatedItems = request.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        // 4. Insert to offers
+        const { error: insertError } = await supabase.from("offers").insert([
+          {
+            user_id: user.id,
+            type: request.type,
+            date: request.date,
+            number: nextNumber,
+            discount_terms: "",
+            expiry_date: "",
+            due_date: request.due_date,
+            status: "Pending",
+            tags: request.tags,
+            items: updatedItems,
+            grand_total,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert offer: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Offer created from request successfully" });
+      }
+
       //   Get Overdue Endpoint
       // case "getOverdue": {
       //   if (method !== "GET") {
