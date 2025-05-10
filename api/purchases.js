@@ -768,14 +768,21 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Request ID" });
         }
 
-        // 1. Get data from request table
-        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Completed").single();
+        // 1. Get request with status "Pending"
+        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Pending").single();
 
         if (fetchError || !request) {
-          return res.status(404).json({ error: true, message: "Request not found or not completed" });
+          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
         }
 
-        // 2. Generate new offer number (similar with addOffer endpoint)
+        // 2. Update the request status to "Completed"
+        const { error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", id);
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
+        }
+
+        // 3. Generate new offer number (similar with addOffer endpoint)
         const requestDate = new Date(request.date);
         const requestMonth = requestDate.getMonth() + 1;
         const requestYear = requestDate.getFullYear();
@@ -801,7 +808,7 @@ module.exports = async (req, res) => {
 
         const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
-        // 3. Calculate again the grand total (optional)
+        // 4. Calculate again the grand total (optional)
         const updatedItems = request.items.map((item) => {
           const qty = Number(item.qty) || 0;
           const unit_price = Number(item.price) || 0;
@@ -813,15 +820,15 @@ module.exports = async (req, res) => {
 
         const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // 4. Insert to offers
+        // 5. Insert to offers
         const { error: insertError } = await supabase.from("offers").insert([
           {
             user_id: user.id,
-            type: request.type,
+            type: "Offer",
             date: request.date,
             number: nextNumber,
-            discount_terms: "",
-            expiry_date: "",
+            discount_terms: null,
+            expiry_date: null,
             due_date: request.due_date,
             status: "Pending",
             tags: request.tags,
