@@ -535,193 +535,25 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Delete Invoice Endpoint
-      case "deleteInvoice": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteInvoice." });
-        }
-
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "Invoice ID is required",
-          });
-        }
-
-        // Cek apakah invoice tersebut milik user
-        const { data: invoice, error: fetchError } = await supabase.from("invoices").select("id").eq("id", id);
-
-        if (fetchError || !invoice || invoice.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: "Invoice not found",
-          });
-        }
-
-        // Hapus invoice
-        const { error: deleteError } = await supabase.from("invoices").delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to delete invoice: " + deleteError.message,
-          });
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: "Invoice deleted successfully",
-        });
-      }
-
-      // Delete Offer Endpoint
-      case "deleteOffer": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteOffer." });
-        }
-
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "Offer ID is required",
-          });
-        }
-
-        // Cek apakah offer tersebut milik user
-        const { data: offer, error: fetchError } = await supabase.from("offers").select("id").eq("id", id);
-
-        if (fetchError || !offer || offer.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: "Offer not found",
-          });
-        }
-
-        // Hapus offer
-        const { error: deleteError } = await supabase.from("offers").delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to delete offer: " + deleteError.message,
-          });
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: "Offer deleted successfully",
-        });
-      }
-
-      // Delete Order Endpoint
-      case "deleteOrder": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteOrder." });
-        }
-
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "Order ID is required",
-          });
-        }
-
-        // Cek apakah order tersebut milik user
-        const { data: order, error: fetchError } = await supabase.from("orders").select("id").eq("id", id);
-
-        if (fetchError || !order || order.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: "Order not found",
-          });
-        }
-
-        // Hapus order
-        const { error: deleteError } = await supabase.from("orders").delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to delete order: " + deleteError.message,
-          });
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: "Order deleted successfully",
-        });
-      }
-
-      // Delete Request Endpoint
+      // Delete Invoice, Shipment, Order, Offer, and Request Endpoint
+      case "deleteInvoice":
+      case "deleteShipment":
+      case "deleteOrder":
+      case "deleteOffer":
       case "deleteRequest": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteRequest." });
+        if (req.method !== "DELETE") {
+          return res.status(405).json({
+            error: true,
+            message: `Method not allowed. Use DELETE for ${action}.`,
+          });
         }
 
         const authHeader = req.headers.authorization;
-
         if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
+          return res.status(401).json({
+            error: true,
+            message: "No authorization header provided",
+          });
         }
 
         const token = authHeader.split(" ")[1];
@@ -730,228 +562,71 @@ module.exports = async (req, res) => {
         const {
           data: { user },
           error: userError,
-        } = await supabase.auth.getUser(token);
+        } = await supabase.auth.getUser();
 
         if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+          return res.status(401).json({
+            error: true,
+            message: "Invalid or expired token",
+          });
         }
 
+        const tableMap = {
+          deleteInvoice: "invoices",
+          deleteShipment: "shipments",
+          deleteOrder: "orders",
+          deleteOffer: "offers",
+          deleteRequest: "requests",
+        };
+
+        const table = tableMap[action];
         const { id } = req.body;
 
         if (!id) {
           return res.status(400).json({
             error: true,
-            message: "Request ID is required",
+            message: "ID is required",
           });
         }
 
-        // Cek apakah request tersebut milik user
-        const { data: request, error: fetchError } = await supabase.from("requests").select("id").eq("id", id);
+        const { data: item, error: fetchError } = await supabase.from(table).select("id").eq("id", id).eq("user_id", user.id);
 
-        if (fetchError || !request || request.length === 0) {
+        if (fetchError || !item || item.length === 0) {
           return res.status(404).json({
             error: true,
-            message: "Request not found",
+            message: `${action.replace("delete", "")} not found or unauthorized`,
           });
         }
 
-        // Hapus request
-        const { error: deleteError } = await supabase.from("requests").delete().eq("id", id);
+        const { error: deleteError } = await supabase.from(table).delete().eq("id", id).eq("user_id", user.id);
 
         if (deleteError) {
           return res.status(500).json({
             error: true,
-            message: "Failed to delete request: " + deleteError.message,
+            message: `Failed to delete data: ${deleteError.message}`,
           });
         }
 
         return res.status(200).json({
           error: false,
-          message: "Request deleted successfully",
+          message: `${action} deleted successfully`,
         });
       }
 
-      //   Delete Shipment Endpoint
-      case "deleteShipment": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteShipment." });
-        }
-
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "Shipment ID is required",
-          });
-        }
-
-        // Cek apakah shipment tersebut milik user
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("id").eq("id", id);
-
-        if (fetchError || !shipment || shipment.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: "Shipment not found",
-          });
-        }
-
-        // Hapus shipment
-        const { error: deleteError } = await supabase.from("shipments").delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to delete shipment: " + deleteError.message,
-          });
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: "Shipment deleted successfully",
-        });
-      }
-
-      // Get Invoice Endpoint
-      case "getInvoice": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoice." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { status } = req.query;
-
-        let query = supabase.from("invoices").select("*").eq("user_id", user.id);
-
-        if (status) query = query.eq("status", status);
-
-        query = query.order("date", { ascending: false });
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + error.message });
-
-        const formattedData = data.map((invoice) => ({
-          ...invoice,
-          number: `INV-${String(invoice.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Offer Endpoint
-      case "getOffer": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOffer." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { status } = req.query;
-
-        let query = supabase.from("offers").select("*").eq("user_id", user.id);
-
-        if (status) query = query.eq("status", status);
-
-        query = query.order("date", { ascending: false });
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch offers: " + error.message });
-
-        const formattedData = data.map((offer) => ({
-          ...offer,
-          number: `OFR-${String(offer.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Order Endpoint
-      case "getOrder": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOrder." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { status } = req.query;
-
-        let query = supabase.from("orders").select("*").eq("user_id", user.id);
-
-        if (status) query = query.eq("status", status);
-
-        query = query.order("date", { ascending: false });
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch orders: " + error.message });
-
-        const formattedData = data.map((order) => ({
-          ...order,
-          number: `ORD-${String(order.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Request Endpoint
+      // Get Invoice, Shipment, Order, Offer, and Request Endpoint
+      case "getInvoice":
+      case "getShipment":
+      case "getOrder":
+      case "getOffer":
       case "getRequest": {
         if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getRequest." });
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
         }
 
         const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
 
         const token = authHeader.split(" ")[1];
         const supabase = getSupabaseWithToken(token);
@@ -960,61 +635,35 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { status } = req.query;
-
-        let query = supabase.from("requests").select("*").eq("user_id", user.id);
-
-        if (status) query = query.eq("status", status);
-
-        query = query.order("date", { ascending: false });
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch requests: " + error.message });
-
-        const formattedData = data.map((request) => ({
-          ...request,
-          number: `REQ-${String(request.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      //   Get Shipment Endpoint
-      case "getShipment": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getShipment." });
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        const endpointsMap = new Map([
+          ["getInvoice", { table: "invoices", prefix: "INV" }],
+          ["getShipment", { table: "shipments", prefix: "SH" }],
+          ["getOrder", { table: "orders", prefix: "ORD" }],
+          ["getOffer", { table: "offers", prefix: "OFR" }],
+          ["getRequest", { table: "requests", prefix: "REQ" }],
+        ]);
 
         const { status } = req.query;
+        const { table, prefix } = endpointsMap.get(action);
 
-        let query = supabase.from("shipments").select("*").eq("user_id", user.id);
-
+        let query = supabase.from(table).select("*").eq("user_id", user.id);
         if (status) query = query.eq("status", status);
-
         query = query.order("date", { ascending: false });
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch shipments: " + error.message });
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch ${table}: ${error.message}` });
+        }
 
-        const formattedData = data.map((shipment) => ({
-          ...shipment,
-          number: `SH-${String(shipment.number).padStart(5, "0")}`,
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${prefix}-${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });

@@ -36,22 +36,21 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const prefix = 1000;
+        const validCategories = ["Customer", "Vendor", "Employee"];
+        if (!validCategories.includes(category)) {
+          return res.status(400).json({ error: true, message: `Invalid category. Must be one of: ${validCategories.join(", ")}` });
+        }
 
-        const { data: latestContact, error: fetchError } = await supabase.from("contacts").select("number").gte("number", prefix).order("number", { ascending: false }).limit(1);
+        const { data: maxNumberData, error: fetchError } = await supabase.from("contacts").select("number").eq("user_id", user.id).eq("category", category).order("number", { ascending: false }).limit(1);
 
-        if (fetchError && fetchError.code !== "PGRST116") {
+        if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest contact number: " + fetchError.message });
         }
 
-        let counter = 1;
-        if (latestContact && latestContact.length > 0) {
-          const lastNumber = latestContact[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
+        let newNumber = 1;
+        if (maxNumberData && maxNumberData.length > 0) {
+          newNumber = maxNumberData[0].number + 1;
         }
-
-        const newNumber = prefix + counter;
 
         const { error: insertError } = await supabase.from("contacts").insert([
           {
@@ -72,7 +71,7 @@ module.exports = async (req, res) => {
           });
         }
 
-        return res.status(201).json({ error: false, message: "Contact created successfully" });
+        return res.status(201).json({ error: false, message: "Contact created successfully", number: newNumber });
       }
 
       // Edit Contact Endpoint
@@ -162,84 +161,6 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Contact deleted successfully" });
       }
 
-      //   Get Customer Endpoint
-      case "getCustomer": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getCustomer." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("contacts").select("*").eq("user_id", user.id).eq("category", "Customer");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch customers: " + error.message });
-
-        return res.status(200).json({ error: false, data });
-      }
-
-      //   Get Vendor Endpoint
-      case "getVendor": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getVendor." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("contacts").select("*").eq("user_id", user.id).eq("category", "Vendor");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch vendors: " + error.message });
-
-        return res.status(200).json({ error: false, data });
-      }
-
-      //   Get Employee Endpoint
-      case "getEmployee": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getEmployee." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("contacts").select("*").eq("user_id", user.id).eq("category", "Employee");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch employees: " + error.message });
-
-        return res.status(200).json({ error: false, data });
-      }
-
       // Get All Contacts Endpoint
       case "getContacts": {
         if (method !== "GET") {
@@ -263,7 +184,13 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        const { category, limit } = req.query;
+
+        const limitValue = limit ? parseInt(limit) : 10;
+
         let query = supabase.from("contacts").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+        if (category) query = query.eq("category", category);
+        query = query.limit(limitValue);
 
         const { data: contacts, error: fetchError } = await query;
 
@@ -314,7 +241,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: contacts });
       }
 
-      //   Get Contact Total Expenses Endpoint
+      // Get Contact Total Expenses Endpoint
       case "getContactExpenses": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getContactExpenses." });
@@ -332,14 +259,12 @@ module.exports = async (req, res) => {
         } = await supabase.auth.getUser();
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        // Fetch all invoices for the user
         const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total").eq("user_id", user.id);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
         }
 
-        // Group by contact_id and sum grand_total
         const expensesByContact = {};
         invoices.forEach((invoice) => {
           const contactId = invoice.user_id;
@@ -357,7 +282,7 @@ module.exports = async (req, res) => {
         });
       }
 
-      //   Get Contact Total Incomes Endpoint
+      // Get Contact Total Incomes Endpoint
       case "getContactIncomes": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getContactIncomes." });
@@ -375,14 +300,12 @@ module.exports = async (req, res) => {
         } = await supabase.auth.getUser();
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        // Fetch all sales for the user
         const { data: sales, error: fetchError } = await supabase.from("sales").select("total").eq("user_id", user.id);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch sales: " + fetchError.message });
         }
 
-        // Group by contact_id and sum grand_total
         const incomesByContact = {};
         sales.forEach((sale) => {
           const contactId = sale.user_id;

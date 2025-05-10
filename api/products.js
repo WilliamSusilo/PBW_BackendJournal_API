@@ -129,54 +129,11 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Warehouse added successfully" });
       }
 
-      // Delete Product Endpoint
-      case "deleteProduct": {
-        if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteProduct." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({ error: true, message: "Product ID is required" });
-        }
-
-        const { data: product, error: fetchError } = await supabase.from("products").select("id").eq("id", id);
-
-        if (fetchError || !product || product.length === 0) {
-          return res.status(404).json({ error: true, message: "Product not found" });
-        }
-
-        const { error: deleteError } = await supabase.from("products").delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({ error: true, message: "Failed to delete product: " + deleteError.message });
-        }
-
-        return res.status(200).json({ error: false, message: "Product deleted successfully" });
-      }
-
-      // Delete Warehouse Endpoint
+      // Delete Product, Warehouse Endpoint
+      case "deleteProduct":
       case "deleteWarehouse": {
         if (method !== "DELETE") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteWarehouse." });
+          return res.status(405).json({ error: true, message: `Method not allowed. Use DELETE for ${action}.` });
         }
 
         const authHeader = req.headers.authorization;
@@ -190,7 +147,7 @@ module.exports = async (req, res) => {
         const {
           data: { user },
           error: userError,
-        } = await supabase.auth.getUser(token);
+        } = await supabase.auth.getUser();
 
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
@@ -199,62 +156,32 @@ module.exports = async (req, res) => {
         const { id } = req.body;
 
         if (!id) {
-          return res.status(400).json({ error: true, message: "Warehouse ID is required" });
+          return res.status(400).json({ error: true, message: `${action === "deleteProduct" ? "Product" : "Warehouse"} ID is required` });
         }
 
-        const { data: warehouse, error: fetchError } = await supabase.from("warehouses").select("id").eq("id", id);
+        const tableName = action === "deleteProduct" ? "products" : "warehouses";
+        const entityName = action === "deleteProduct" ? "Product" : "Warehouse";
 
-        if (fetchError || !warehouse || warehouse.length === 0) {
-          return res.status(404).json({ error: true, message: "Warehouse not found" });
+        const { data: record, error: fetchError } = await supabase.from(tableName).select("id").eq("id", id);
+
+        if (fetchError || !record || record.length === 0) {
+          return res.status(404).json({ error: true, message: `${entityName} not found` });
         }
 
-        const { error: deleteError } = await supabase.from("warehouses").delete().eq("id", id);
+        const { error: deleteError } = await supabase.from(tableName).delete().eq("id", id);
 
         if (deleteError) {
-          return res.status(500).json({ error: true, message: "Failed to delete warehouse: " + deleteError.message });
+          return res.status(500).json({ error: true, message: `Failed to delete ${entityName.toLowerCase()}: ` + deleteError.message });
         }
 
-        return res.status(200).json({ error: false, message: "Warehouse deleted successfully" });
+        return res.status(200).json({ error: false, message: `${entityName} deleted successfully` });
       }
 
-      // Get All Products Endpoint
-      case "getProducts": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getProducts." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        let query = supabase.from("products").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-
-        const { data: products, error: fetchError } = await query;
-
-        if (fetchError) {
-          return res.status(500).json({ error: true, message: "Failed to fetch products: " + fetchError.message });
-        }
-
-        return res.status(200).json({ error: false, data: products });
-      }
-
-      // Get All Products Endpoint
+      // Get All Products, Warehouses Endpoint
+      case "getProducts":
       case "getWarehouses": {
         if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getWarehouses." });
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
         }
 
         const authHeader = req.headers.authorization;
@@ -274,91 +201,21 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
-        let query = supabase.from("warehouses").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+        const tableName = action === "getProducts" ? "products" : "warehouses";
+        const filterField = action === "getProducts" ? "category" : "location";
+        const filterValue = req.query[filterField];
+        const limit = parseInt(req.query.limit) || 10;
 
-        const { data: warehouses, error: fetchError } = await query;
+        let query = supabase.from(tableName).select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limit);
 
+        if (filterValue) {
+          query = query.eq(filterField, filterValue);
+        }
+
+        const { data, error: fetchError } = await query;
         if (fetchError) {
-          return res.status(500).json({ error: true, message: "Failed to fetch warehouses: " + fetchError.message });
+          return res.status(500).json({ error: true, message: `Failed to fetch ${tableName}: ${fetchError.message}` });
         }
-
-        return res.status(200).json({ error: false, data: warehouses });
-      }
-
-      //   Get Electronics Endpoint
-      case "getElectronics": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getElectronics." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("products").select("*").eq("user_id", user.id).eq("category", "Electronics");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch products: " + error.message });
-
-        return res.status(200).json({ error: false, data });
-      }
-
-      //   Get Office Endpoint
-      case "getOffice": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOffice." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("products").select("*").eq("user_id", user.id).eq("category", "Office");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch products: " + error.message });
-
-        return res.status(200).json({ error: false, data });
-      }
-
-      //   Get Furniture Endpoint
-      case "getFurniture": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getFurniture." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        const { data, error } = await supabase.from("products").select("*").eq("user_id", user.id).eq("category", "Furniture");
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch products: " + error.message });
 
         return res.status(200).json({ error: false, data });
       }
