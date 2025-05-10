@@ -669,6 +669,78 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: formattedData });
       }
 
+      // Get Approval Endpoint
+      case "getApproval": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        let query = supabase.from("requests").select("*").eq("user_id", user.id).eq("status", "Pending");
+        query = query.order("date", { ascending: false });
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Reject Request Endpoint
+      case "rejectRequest": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: true, message: "Request ID is required" });
+
+        const { data, error } = await supabase.from("requests").update({ status: "Cancelled" }).eq("id", id).select();
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to reject request: " + error.message });
+
+        if (!data || data.length === 0) {
+          return res.status(404).json({ error: true, message: "Request not found with the given ID" });
+        }
+
+        return res.status(200).json({ error: false, message: "Request rejected successfully" });
+      }
+
       //   Get Overdue Endpoint
       // case "getOverdue": {
       //   if (method !== "GET") {

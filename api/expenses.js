@@ -112,8 +112,6 @@ module.exports = async (req, res) => {
 
         const { data, error } = await supabase.from("expenses").update({ status: "Paid" }).eq("id", id).select();
 
-        console.log("ID to update:", id);
-
         if (error) return res.status(500).json({ error: true, message: "Failed to approve expense: " + error.message });
 
         if (!data || data.length === 0) {
