@@ -26,9 +26,9 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { date, category, beneficiary, status, items } = req.body;
+        const { date, category, beneficiary, status, items, grand_total } = req.body;
 
-        if (!date || !category || !beneficiary || !status || !items || items.length === 0) {
+        if (!date || !category || !beneficiary || !status || !items || items.length === 0 || !grand_total) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
@@ -36,22 +36,28 @@ module.exports = async (req, res) => {
         const requestMonth = requestDate.getMonth() + 1; // 0-based
         const requestYear = requestDate.getFullYear();
 
-        // Generate prefix for this month: YYYYMM
+        // Format prefix
         const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
-        const prefixInt = parseInt(prefix + "0", 10); // Example = 2025040
-        const nextPrefixInt = parseInt(prefix + "9999", 10); // Upper limit (assume maximum 4 digit counter)
 
-        const { data: latestExpense, error: fetchError } = await supabase.from("expenses").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // Get the expenses from the same month & year
+        const { data: existingExpenses, error: fetchError } = await supabase
+          .from("expenses")
+          .select("number")
+          .eq("user_id", user.id)
+          .gte("date", `${requestYear}-${String(requestMonth).padStart(2, "0")}-01`)
+          .lt("date", `${requestYear}-${String(requestMonth + 1).padStart(2, "0")}-01`)
+          .order("number", { ascending: false })
+          .limit(1);
 
-        if (fetchError && fetchError.code !== "PGRST116") {
+        if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest expense number: " + fetchError.message });
         }
 
         // Determine the next counter based on latest request
         let counter = 1;
-        if (latestExpense && latestExpense.length > 0) {
-          const lastNumber = latestExpense[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10); // Extract counter after prefix
+        if (existingExpenses && existingExpenses.length > 0) {
+          const lastNumber = existingExpenses[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(6), 10); // ambil setelah prefix 202504
           counter = lastCounter + 1;
         }
 
@@ -69,7 +75,7 @@ module.exports = async (req, res) => {
           };
         });
 
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
         const { error: insertError } = await supabase.from("expenses").insert([
           {
@@ -184,12 +190,40 @@ module.exports = async (req, res) => {
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
         const { status } = req.query;
+        const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search?.toLowerCase();
 
-        let query = supabase.from("expenses").select("*").eq("user_id", user.id);
+        let query = supabase.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(limit);
 
         if (status) query = query.eq("status", status);
 
-        query = query.order("date", { ascending: false });
+        if (search) {
+          const stringColumns = ["category", "beneficiary"];
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqFloatConditions.push("grand_total.eq." + parseFloat(search));
+          }
+
+          // For detect search like "Expense #00588"
+          const codeMatch = search.match(/^expense\s?#?0*(\d{1,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
 
         const { data, error } = await query;
 

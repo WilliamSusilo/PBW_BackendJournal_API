@@ -649,11 +649,12 @@ module.exports = async (req, res) => {
         ]);
 
         const { status } = req.query;
+        const limit = parseInt(req.query.limit) || 10;
         const { table, prefix } = endpointsMap.get(action);
 
         let query = supabase.from(table).select("*").eq("user_id", user.id);
         if (status) query = query.eq("status", status);
-        query = query.order("date", { ascending: false });
+        query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
 
@@ -692,8 +693,10 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        const limit = parseInt(req.query.limit) || 10;
+
         let query = supabase.from("requests").select("*").eq("user_id", user.id).eq("status", "Pending");
-        query = query.order("date", { ascending: false });
+        query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
 
@@ -863,12 +866,13 @@ module.exports = async (req, res) => {
       //   if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
       //   const { status } = req.query;
+      // const limit = parseInt(req.query.limit) || 10;
 
       //   let query = supabase.from("shipments").select("*").eq("user_id", user.id);
 
       //   if (status) query = query.eq("status", status);
 
-      //   query = query.order("date", { ascending: false });
+      //   query = query.order("date", { ascending: false }).limit(limit);
 
       //   const { data, error } = await query;
 

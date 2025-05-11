@@ -185,20 +185,58 @@ module.exports = async (req, res) => {
         }
 
         const { category, limit } = req.query;
-
+        const search = req.query.search?.toLowerCase();
         const limitValue = limit ? parseInt(limit) : 10;
 
-        let query = supabase.from("contacts").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-        if (category) query = query.eq("category", category);
-        query = query.limit(limitValue);
+        let query = supabase.from("contacts").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limitValue);
 
-        const { data: contacts, error: fetchError } = await query;
+        if (category) query = query.eq("category", category);
+
+        if (search) {
+          const stringColumns = ["category", "name", "email", "phone", "address"];
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+
+          // Check if the search can be convert into number
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push(`number.eq.${search}`);
+          }
+
+          // Check the code, for example CUST001 → get the number
+          const codeMatch = search.match(/^(CUST|EMPL|VEND)(\d{3,})$/i);
+          if (codeMatch) {
+            const codeNum = parseInt(codeMatch[2], 10); // get the number from code like CUST001
+            if (!isNaN(codeNum)) {
+              eqIntConditions.push(`number.eq.${codeNum}`);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error: fetchError } = await query;
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch contacts: " + fetchError.message });
         }
 
-        return res.status(200).json({ error: false, data: contacts });
+        const prefixMap = {
+          Customer: "CUST",
+          Employee: "EMPL",
+          Vendor: "VEND",
+        };
+
+        const formattedData = data.map((item) => {
+          const prefix = prefixMap[item.category] || "UNK";
+          return {
+            ...item,
+            number: `${prefix}${String(item.number).padStart(3, "0")}`,
+          };
+        });
+
+        return res.status(200).json({ error: false, data: formattedData });
       }
 
       // Get Contact Person Endpoint
@@ -225,12 +263,11 @@ module.exports = async (req, res) => {
         }
 
         const { id } = req.query;
-
-        let query = supabase.from("contacts").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-
-        if (id) {
-          query = query.eq("id", id);
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Contact ID" });
         }
+
+        let query = supabase.from("contacts").select("*").eq("id", id).order("created_at", { ascending: false });
 
         const { data: contacts, error: fetchError } = await query;
 
@@ -257,28 +294,47 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
+
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total").eq("user_id", user.id);
+        // const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total").eq("user_id", user.id);
+
+        // if (fetchError) {
+        //   return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
+        // }
+
+        // const expensesByContact = {};
+        // invoices.forEach((invoice) => {
+        //   const contactId = invoice.user_id;
+        //   const total = invoice.grand_total || 0;
+
+        //   if (!expensesByContact[contactId]) {
+        //     expensesByContact[contactId] = 0;
+        //   }
+        //   expensesByContact[contactId] += total;
+        // });
+
+        // return res.status(200).json({
+        //   error: false,
+        //   data: expensesByContact, // Example: { "contact1": 5000, "contact2": 3200 }
+        // });
+
+        // Get all invoice data from user
+        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("*").eq("user_id", user.id);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
         }
 
-        const expensesByContact = {};
-        invoices.forEach((invoice) => {
-          const contactId = invoice.user_id;
-          const total = invoice.grand_total || 0;
-
-          if (!expensesByContact[contactId]) {
-            expensesByContact[contactId] = 0;
-          }
-          expensesByContact[contactId] += total;
-        });
+        // Calculate the expense total from all invoice
+        const totalExpenses = invoices.reduce((acc, invoice) => acc + (invoice.grand_total || 0), 0);
 
         return res.status(200).json({
           error: false,
-          data: expensesByContact, // Example: { "contact1": 5000, "contact2": 3200 }
+          data: {
+            invoices,
+            total_expenses: totalExpenses,
+          },
         });
       }
 
@@ -298,28 +354,46 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
+
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { data: sales, error: fetchError } = await supabase.from("sales").select("total").eq("user_id", user.id);
+        // const { data: sales, error: fetchError } = await supabase.from("sales").select("grand_total").eq("user_id", user.id);
+
+        // if (fetchError) {
+        //   return res.status(500).json({ error: true, message: "Failed to fetch sales: " + fetchError.message });
+        // }
+
+        // const incomesByContact = {};
+        // sales.forEach((sale) => {
+        //   const contactId = sale.user_id;
+        //   const total = sale.total || 0;
+
+        //   if (!incomesByContact[contactId]) {
+        //     incomesByContact[contactId] = 0;
+        //   }
+        //   incomesByContact[contactId] += total;
+        // });
+
+        // return res.status(200).json({
+        //   error: false,
+        //   data: incomesByContact, // Example: { "contact1": 5000, "contact2": 3200 }
+        // });
+        // Get all sale data from user
+        const { data: sales, error: fetchError } = await supabase.from("sales").select("*").eq("user_id", user.id);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch sales: " + fetchError.message });
         }
 
-        const incomesByContact = {};
-        sales.forEach((sale) => {
-          const contactId = sale.user_id;
-          const total = sale.total || 0;
-
-          if (!incomesByContact[contactId]) {
-            incomesByContact[contactId] = 0;
-          }
-          incomesByContact[contactId] += total;
-        });
+        // Calculate the income total from all sale
+        const totalIncomes = sales.reduce((acc, sale) => acc + (sale.grand_total || 0), 0);
 
         return res.status(200).json({
           error: false,
-          data: incomesByContact, // Example: { "contact1": 5000, "contact2": 3200 }
+          data: {
+            sales,
+            total_incomes: totalIncomes,
+          },
         });
       }
 

@@ -32,22 +32,21 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const prefix = 1000;
+        const allowedStatuses = ["In Stock", "Out of Stock"];
+        if (!allowedStatuses.includes(status)) {
+          return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
+        }
 
-        const { data: latestProduct, error: fetchError } = await supabase.from("products").select("number").gte("number", prefix).order("number", { ascending: false }).limit(1);
+        const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").eq("user_id", user.id).order("number", { ascending: false }).limit(1);
 
-        if (fetchError && fetchError.code !== "PGRST116") {
+        if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest product number: " + fetchError.message });
         }
 
-        let counter = 1;
-        if (latestProduct && latestProduct.length > 0) {
-          const lastNumber = latestProduct[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
+        let newNumber = 1;
+        if (maxNumberData && maxNumberData.length > 0) {
+          newNumber = maxNumberData[0].number + 1;
         }
-
-        const newNumber = prefix + counter;
 
         const { error: insertError } = await supabase.from("products").insert([
           {
@@ -95,22 +94,16 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const prefix = 1000;
+        const { data: maxNumberData, error: fetchError } = await supabase.from("warehouses").select("number").eq("user_id", user.id).order("number", { ascending: false }).limit(1);
 
-        const { data: latestWarehouse, error: fetchError } = await supabase.from("warehouses").select("number").gte("number", prefix).order("number", { ascending: false }).limit(1);
-
-        if (fetchError && fetchError.code !== "PGRST116") {
+        if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest warehouse number: " + fetchError.message });
         }
 
-        let counter = 1;
-        if (latestWarehouse && latestWarehouse.length > 0) {
-          const lastNumber = latestWarehouse[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
+        let newNumber = 1;
+        if (maxNumberData && maxNumberData.length > 0) {
+          newNumber = maxNumberData[0].number + 1;
         }
-
-        const newNumber = prefix + counter;
 
         const { error: insertError } = await supabase.from("warehouses").insert([
           {
@@ -127,6 +120,104 @@ module.exports = async (req, res) => {
         }
 
         return res.status(201).json({ error: false, message: "Warehouse added successfully" });
+      }
+
+      // Edit Product Endpoint
+      case "editProduct": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editProduct." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id, category, name, total_stock, min_stock, unit, buy_price, status } = req.body;
+
+        if (!id || !category || !name || total_stock === undefined || min_stock === undefined || !unit || buy_price === undefined || !status) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const allowedStatuses = ["In Stock", "Out of Stock"];
+        if (!allowedStatuses.includes(status)) {
+          return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
+        }
+
+        const { data: existingProduct, error: fetchError } = await supabase.from("products").select("id").eq("id", id).eq("user_id", user.id);
+
+        if (fetchError || !existingProduct || existingProduct.length === 0) {
+          return res.status(404).json({ error: true, message: "Product not found or does not belong to user" });
+        }
+
+        const { error: updateError } = await supabase
+          .from("products")
+          .update({
+            category,
+            name,
+            total_stock: Number(total_stock),
+            min_stock: Number(min_stock),
+            unit,
+            buy_price: Number(buy_price),
+            status,
+          })
+          .eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update product: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Product updated successfully" });
+      }
+
+      // Edit Warehouse Endpoint
+      case "editWarehouse": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editWarehouse." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id, name, location, total_stock } = req.body;
+
+        if (!id || !name || !location || total_stock === undefined) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const { error: updateError } = await supabase
+          .from("warehouses")
+          .update({
+            name,
+            location,
+            total_stock: Number(total_stock),
+          })
+          .eq("id", id)
+          .eq("user_id", user.id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update warehouse: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Warehouse updated successfully" });
       }
 
       // Delete Product, Warehouse Endpoint
@@ -203,8 +294,10 @@ module.exports = async (req, res) => {
 
         const tableName = action === "getProducts" ? "products" : "warehouses";
         const filterField = action === "getProducts" ? "category" : "location";
+        const prefix = action === "getProducts" ? "PRD" : "WH";
         const filterValue = req.query[filterField];
         const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search?.toLowerCase();
 
         let query = supabase.from(tableName).select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limit);
 
@@ -212,12 +305,50 @@ module.exports = async (req, res) => {
           query = query.eq(filterField, filterValue);
         }
 
+        if (search) {
+          const stringColumns = action === "getProducts" ? ["category", "name", "unit", "status"] : ["name", "location"];
+
+          const intColumns = action === "getProducts" ? ["total_stock", "min_stock"] : ["total_stock"];
+
+          const numericColumns = action === "getProducts" ? ["buy_price", "sell_price"] : [];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const eqIntConditions = [];
+          const eqNumericConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+          }
+
+          // 👉 Pencarian untuk kode PRD001 atau WH002
+          const codeMatch = search.match(/^(PRD|WH)(\d{3,})$/i);
+          if (codeMatch) {
+            const codeNum = parseInt(codeMatch[2], 10); // example = PRD001 --> 1
+
+            if (!isNaN(codeNum)) {
+              eqIntConditions.push(`number.eq.${codeNum}`);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqNumericConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
         const { data, error: fetchError } = await query;
         if (fetchError) {
           return res.status(500).json({ error: true, message: `Failed to fetch ${tableName}: ${fetchError.message}` });
         }
 
-        return res.status(200).json({ error: false, data });
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${prefix}${String(item.number).padStart(3, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, formattedData });
       }
 
       // Non-existent Endpoint
