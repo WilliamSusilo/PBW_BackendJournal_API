@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: `Invalid category. Must be one of: ${validCategories.join(", ")}` });
         }
 
-        const { data: maxNumberData, error: fetchError } = await supabase.from("contacts").select("number").eq("user_id", user.id).eq("category", category).order("number", { ascending: false }).limit(1);
+        const { data: maxNumberData, error: fetchError } = await supabase.from("contacts").select("number").eq("category", category).order("number", { ascending: false }).limit(1);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest contact number: " + fetchError.message });
@@ -184,11 +184,14 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
-        const { category, limit } = req.query;
+        const { category } = req.query;
         const search = req.query.search?.toLowerCase();
-        const limitValue = limit ? parseInt(limit) : 10;
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
 
-        let query = supabase.from("contacts").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limitValue);
+        let query = supabase.from("contacts").select("*").order("created_at", { ascending: false }).range(from, to);
 
         if (category) query = query.eq("category", category);
 
@@ -297,7 +300,7 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        // const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total").eq("user_id", user.id);
+        // const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total");
 
         // if (fetchError) {
         //   return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
@@ -320,7 +323,7 @@ module.exports = async (req, res) => {
         // });
 
         // Get all invoice data from user
-        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("*").eq("user_id", user.id);
+        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("*");
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
@@ -357,7 +360,7 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        // const { data: sales, error: fetchError } = await supabase.from("sales").select("grand_total").eq("user_id", user.id);
+        // const { data: sales, error: fetchError } = await supabase.from("sales").select("grand_total");
 
         // if (fetchError) {
         //   return res.status(500).json({ error: true, message: "Failed to fetch sales: " + fetchError.message });
@@ -379,7 +382,7 @@ module.exports = async (req, res) => {
         //   data: incomesByContact, // Example: { "contact1": 5000, "contact2": 3200 }
         // });
         // Get all sale data from user
-        const { data: sales, error: fetchError } = await supabase.from("sales").select("*").eq("user_id", user.id);
+        const { data: sales, error: fetchError } = await supabase.from("sales").select("*");
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch sales: " + fetchError.message });

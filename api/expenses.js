@@ -43,7 +43,6 @@ module.exports = async (req, res) => {
         const { data: existingExpenses, error: fetchError } = await supabase
           .from("expenses")
           .select("number")
-          .eq("user_id", user.id)
           .gte("date", `${requestYear}-${String(requestMonth).padStart(2, "0")}-01`)
           .lt("date", `${requestYear}-${String(requestMonth + 1).padStart(2, "0")}-01`)
           .order("number", { ascending: false })
@@ -93,6 +92,61 @@ module.exports = async (req, res) => {
         if (insertError) return res.status(500).json({ error: true, message: "Failed to create expense: " + insertError.message });
 
         return res.status(201).json({ error: false, message: "Expense created successfuly" });
+      }
+
+      // Edit Expense Endpoint
+      case "editExpense": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editExpense." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id, date, category, beneficiary, status, items, grand_total } = req.body;
+
+        if (!id || !date || !category || !beneficiary || !status || !items || items.length === 0 || !grand_total) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const updatedItems = items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.unit_price) || 0;
+          const total_per_item = qty * unit_price;
+
+          return {
+            ...item,
+            total_per_item,
+          };
+        });
+
+        const { error: updateError } = await supabase
+          .from("expenses")
+          .update({
+            date,
+            category,
+            beneficiary,
+            status,
+            items: updatedItems,
+            grand_total,
+          })
+          .eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update expense: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Expense updated successfully" });
       }
 
       // Approve Expense Endpoint
@@ -190,10 +244,13 @@ module.exports = async (req, res) => {
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
         const { status } = req.query;
-        const limit = parseInt(req.query.limit) || 10;
         const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
 
-        let query = supabase.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(limit);
+        let query = supabase.from("expenses").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -213,7 +270,7 @@ module.exports = async (req, res) => {
           }
 
           // For detect search like "Expense #00588"
-          const codeMatch = search.match(/^expense\s?#?0*(\d{1,})$/i);
+          const codeMatch = search.match(/^expense\s?#?0*(\d{7,})$/i);
           if (codeMatch) {
             const extractedNumber = parseInt(codeMatch[1], 10);
             if (!isNaN(extractedNumber)) {
@@ -262,7 +319,7 @@ module.exports = async (req, res) => {
         thirtyDaysAgo.setDate(today.getDate() - 30);
 
         // Fetch all expenses for the user
-        const { data: expenses, error: fetchError } = await supabase.from("expenses").select("date, grand_total").eq("user_id", user.id);
+        const { data: expenses, error: fetchError } = await supabase.from("expenses").select("date, grand_total");
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch expenses: " + fetchError.message });

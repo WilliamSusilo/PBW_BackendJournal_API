@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
         }
 
-        const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").eq("user_id", user.id).order("number", { ascending: false }).limit(1);
+        const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").order("number", { ascending: false }).limit(1);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest product number: " + fetchError.message });
@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const { data: maxNumberData, error: fetchError } = await supabase.from("warehouses").select("number").eq("user_id", user.id).order("number", { ascending: false }).limit(1);
+        const { data: maxNumberData, error: fetchError } = await supabase.from("warehouses").select("number").order("number", { ascending: false }).limit(1);
 
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch latest warehouse number: " + fetchError.message });
@@ -152,7 +152,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
         }
 
-        const { data: existingProduct, error: fetchError } = await supabase.from("products").select("id").eq("id", id).eq("user_id", user.id);
+        const { data: existingProduct, error: fetchError } = await supabase.from("products").select("id").eq("id", id);
 
         if (fetchError || !existingProduct || existingProduct.length === 0) {
           return res.status(404).json({ error: true, message: "Product not found or does not belong to user" });
@@ -210,8 +210,7 @@ module.exports = async (req, res) => {
             location,
             total_stock: Number(total_stock),
           })
-          .eq("id", id)
-          .eq("user_id", user.id);
+          .eq("id", id);
 
         if (updateError) {
           return res.status(500).json({ error: true, message: "Failed to update warehouse: " + updateError.message });
@@ -296,10 +295,13 @@ module.exports = async (req, res) => {
         const filterField = action === "getProducts" ? "category" : "location";
         const prefix = action === "getProducts" ? "PRD" : "WH";
         const filterValue = req.query[filterField];
-        const limit = parseInt(req.query.limit) || 10;
         const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
 
-        let query = supabase.from(tableName).select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(limit);
+        let query = supabase.from(tableName).select("*").order("created_at", { ascending: false }).range(from, to);
 
         if (filterValue) {
           query = query.eq(filterField, filterValue);
@@ -324,7 +326,6 @@ module.exports = async (req, res) => {
             eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
           }
 
-          // 👉 Pencarian untuk kode PRD001 atau WH002
           const codeMatch = search.match(/^(PRD|WH)(\d{3,})$/i);
           if (codeMatch) {
             const codeNum = parseInt(codeMatch[2], 10); // example = PRD001 --> 1
