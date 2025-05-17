@@ -3,7 +3,7 @@ const Cors = require("cors");
 
 // Initialization for middleware CORS
 const cors = Cors({
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS", "PATCH", "PATCH", "DELETE"],
   origin: ["http://localhost:8080", "https://prabaraja-webapp.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
@@ -43,21 +43,7 @@ module.exports = async (req, res) => {
   }
 
   const { method, query } = req;
-  let body = {};
-  if (req.method !== "GET") {
-    try {
-      const buffers = [];
-      for await (const chunk of req) {
-        buffers.push(chunk);
-      }
-      const rawBody = Buffer.concat(buffers).toString();
-      body = JSON.parse(rawBody);
-    } catch (err) {
-      console.error("Error parsing JSON:", err.message);
-      return res.status(400).json({ error: true, message: "Invalid JSON body" });
-    }
-  }
-
+  const body = req.body;
   const action = method === "GET" ? query.action : body.action;
 
   try {

@@ -3,7 +3,7 @@ const Cors = require("cors");
 
 // Initialization for middleware CORS
 const cors = Cors({
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS", "PATCH", "PATCH", "DELETE"],
   origin: ["http://localhost:8080", "https://prabaraja-webapp.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
@@ -155,7 +155,7 @@ module.exports = async (req, res) => {
 
         const { id, date, category, beneficiary, status, items, grand_total } = req.body;
 
-        if (!id || !date || !category || !beneficiary || !status || !items || items.length === 0 || !grand_total) {
+        if (!id) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
