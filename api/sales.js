@@ -5,6 +5,14 @@ module.exports = async (req, res) => {
   const body = req.body;
   const action = method === "GET" ? query.action : body.action;
 
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
     switch (action) {
       // Add Sales Endpoint
