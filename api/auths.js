@@ -1,4 +1,23 @@
 const { supabase, supabaseAdmin, getSupabaseWithToken } = require("../lib/supabaseClient");
+const Cors = require("cors");
+
+// Initialization for middleware CORS
+const cors = Cors({
+  methods: ["GET", "POST", "OPTIONS"],
+  origin: "*",
+});
+
+// Helper for run middleware with async
+function runMiddleware(req, res, fn) {
+  return new Promise((resolve, reject) => {
+    fn(req, res, (result) => {
+      if (result instanceof Error) {
+        return reject(result);
+      }
+      return resolve(result);
+    });
+  });
+}
 
 function isValidEmail(email) {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,6 +35,7 @@ function isStrongPassword(password) {
 }
 
 module.exports = async (req, res) => {
+  await runMiddleware(req, res, cors);
   const { method, query } = req;
   let body = {};
   if (req.method !== "GET") {
