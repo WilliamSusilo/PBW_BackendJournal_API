@@ -1,14 +1,5 @@
 {
   "version": 2,
   "builds": [{ "src": "api/**/*.js", "use": "@vercel/node" }],
-  "routes": [{ "src": "/api/(.*)", "dest": "/api/$1.js" }],
-  "functions": {
-    "api/**/*.js": {
-      "headers": {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS, PUT, PATCH, DELETE",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-      }
-    }
-  }
+  "routes": [{ "src": "/api/(.*)", "dest": "/api/$1.js" }]
 }
