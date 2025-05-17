@@ -46,6 +46,11 @@ module.exports = async (req, res) => {
         const { data, error: signupError } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            data: {
+              name, // insert into user_metadata
+            },
+          },
         });
         if (signupError) throw signupError;
 
@@ -63,7 +68,7 @@ module.exports = async (req, res) => {
         }
 
         const supabaseWithAuth = getSupabaseWithToken(accessToken);
-        const { error: profileError } = await supabaseWithAuth.from("profiles").insert([{ id: user.id, name, email }]);
+        const { error: profileError } = await supabaseWithAuth.from("profiles").update([{ name }]).eq("id", user.id);
         if (profileError) throw profileError;
 
         return res.status(200).json({ error: false, message: "Registration successful", user });
