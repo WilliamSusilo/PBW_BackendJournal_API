@@ -4,7 +4,8 @@ const Cors = require("cors");
 // Initialization for middleware CORS
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS"],
-  origin: "*",
+  origin: ["http://localhost:8080/", "https://prabaraja-webapp.vercel.app/"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 });
 
 // Helper for run middleware with async
@@ -21,6 +22,11 @@ function runMiddleware(req, res, fn) {
 
 module.exports = async (req, res) => {
   await runMiddleware(req, res, cors);
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   const { method, query } = req;
   let body = {};
   if (req.method !== "GET") {
