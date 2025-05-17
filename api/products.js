@@ -1,17 +1,29 @@
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
+const Cors = require("cors");
+
+// Initialization for middleware CORS
+const cors = Cors({
+  methods: ["GET", "POST", "OPTIONS"],
+  origin: "*",
+});
+
+// Helper for run middleware with async
+function runMiddleware(req, res, fn) {
+  return new Promise((resolve, reject) => {
+    fn(req, res, (result) => {
+      if (result instanceof Error) {
+        return reject(result);
+      }
+      return resolve(result);
+    });
+  });
+}
 
 module.exports = async (req, res) => {
+  await runMiddleware(req, res, cors);
   const { method, query } = req;
   const body = req.body;
   const action = method === "GET" ? query.action : body.action;
-
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
 
   try {
     switch (action) {
