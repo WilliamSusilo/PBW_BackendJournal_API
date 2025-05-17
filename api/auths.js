@@ -5,6 +5,7 @@ const Cors = require("cors");
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS"],
   origin: "*",
+  allowedHeaders: ["Content-Type", "Authorization"],
 });
 
 // Helper for run middleware with async
@@ -36,6 +37,11 @@ function isStrongPassword(password) {
 
 module.exports = async (req, res) => {
   await runMiddleware(req, res, cors);
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   const { method, query } = req;
   let body = {};
   if (req.method !== "GET") {
