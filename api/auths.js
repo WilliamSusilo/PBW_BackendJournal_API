@@ -54,9 +54,9 @@ module.exports = async (req, res) => {
           return res.status(405).json({ error: true, message: "Method not allowed. Use POST for register." });
         }
 
-        const { name, email, password } = body;
+        const { name, email, password, role } = body;
 
-        if (!name || !email || !password) return res.status(400).json({ error: true, message: "Name, email, and password are required." });
+        if (!name || !email || !password || !role) return res.status(400).json({ error: true, message: "Name, email, password, and role are required." });
 
         if (typeof name !== "string" || name.trim() === "" || name.length > 100) return res.status(400).json({ error: true, message: "Name must be a non-empty string with a maximum of 100 characters." });
 
@@ -75,6 +75,7 @@ module.exports = async (req, res) => {
           options: {
             data: {
               name, // insert into user_metadata
+              role,
             },
           },
         });
@@ -94,7 +95,7 @@ module.exports = async (req, res) => {
         }
 
         const supabaseWithAuth = getSupabaseWithToken(accessToken);
-        const { error: profileError } = await supabaseWithAuth.from("profiles").update([{ name }]).eq("id", user.id);
+        const { error: profileError } = await supabaseWithAuth.from("profiles").update([{ name, role }]).eq("id", user.id);
         if (profileError) throw profileError;
 
         return res.status(200).json({ error: false, message: "Registration successful", user });

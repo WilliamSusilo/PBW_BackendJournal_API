@@ -31,6 +31,16 @@ module.exports = async (req, res) => {
   const body = req.body;
   const action = method === "GET" ? query.action : body.action;
 
+  const getUserRole = async (supabase) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+    return profile?.role;
+  };
+
   try {
     switch (action) {
       // Add Asset Endpoint
@@ -49,6 +59,12 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
+
+        // For least privillage feature
+        const role = await getUserRole(supabase);
+        if (role !== "user") {
+          return res.status(403).json({ error: true, message: "Only user is allowed to add new asset." });
+        }
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
