@@ -68,6 +68,25 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
         const { asset_type, asset_name, model, assigned_to, department, purchase_date, purchase_price, warranty_deadline, manufacturer, serial_number } = body;
 
         // Validasi input wajib
@@ -141,6 +160,25 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
         const { id, asset_type, asset_name, model, assigned_to, department, purchase_date, purchase_price, warranty_deadline, manufacturer, serial_number } = body;
 
         if (!id) {
@@ -195,6 +233,25 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
         const { id } = req.body;
 
         if (!id) return res.status(400).json({ error: true, message: "Asset ID is required" });
@@ -236,6 +293,25 @@ module.exports = async (req, res) => {
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
 
         const search = req.query.search?.toLowerCase();
         const pagination = parseInt(req.query.page) || 1;
@@ -307,6 +383,25 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["finance", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
         const { id, sale_date, sale_price, sold_to, reason_for_sale, invoice_no, notes } = body;
 
         if (!id) {
@@ -362,6 +457,25 @@ module.exports = async (req, res) => {
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "finance", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
 
         const search = req.query.search?.toLowerCase();
         const pagination = parseInt(req.query.page) || 1;

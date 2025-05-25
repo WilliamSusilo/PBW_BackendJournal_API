@@ -54,9 +54,9 @@ module.exports = async (req, res) => {
           return res.status(405).json({ error: true, message: "Method not allowed. Use POST for register." });
         }
 
-        const { name, email, password, role } = body;
+        const { name, email, password } = body;
 
-        if (!name || !email || !password || !role) return res.status(400).json({ error: true, message: "Name, email, password, and role are required." });
+        if (!name || !email || !password) return res.status(400).json({ error: true, message: "Name, email, and password are required." });
 
         if (typeof name !== "string" || name.trim() === "" || name.length > 100) return res.status(400).json({ error: true, message: "Name must be a non-empty string with a maximum of 100 characters." });
 
@@ -75,7 +75,7 @@ module.exports = async (req, res) => {
           options: {
             data: {
               name, // insert into user_metadata
-              role,
+              // role,
             },
           },
         });
@@ -95,7 +95,7 @@ module.exports = async (req, res) => {
         }
 
         const supabaseWithAuth = getSupabaseWithToken(accessToken);
-        const { error: profileError } = await supabaseWithAuth.from("profiles").update([{ name, role }]).eq("id", user.id);
+        const { error: profileError } = await supabaseWithAuth.from("profiles").update([{ name }]).eq("id", user.id);
         if (profileError) throw profileError;
 
         return res.status(200).json({ error: false, message: "Registration successful", user });
@@ -192,6 +192,69 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Password updated successfully" });
       }
 
+      //   Reset Password by Admin Endpoint
+      case "resetPassAdmin": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for resetPassAdmin." });
+        }
+
+        const { access_token, refresh_token, user_id, new_password } = body;
+        if (!access_token || !refresh_token || !user_id || !new_password) return res.status(400).json({ error: true, message: "Access token, refresh token, id, and new password are required" });
+
+        if (!isStrongPassword(new_password)) return res.status(400).json({ error: true, message: "Password must contain uppercase, lowercase, number, and special character." });
+
+        if (!user_id || !new_password) {
+          return res.status(400).json({ error: true, message: "User ID and new password are required" });
+        }
+
+        // Get admin user from current session
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "Authorization header required" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database (e.g. 'profiles' or 'users' table)
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password: new_password });
+        if (updateError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update password: " + updateError.message,
+          });
+        }
+
+        return res.status(200).json({ error: false, message: "Password updated successfully" });
+      }
+
       //   Forgot Password Endpoint
       case "forgotPass": {
         if (method !== "POST") {
@@ -244,6 +307,113 @@ module.exports = async (req, res) => {
         }
 
         return res.status(200).json({ error: false, message: "Name updated successfully" });
+      }
+
+      // Update Role Endpoint
+      case "updateRole": {
+        if (req.method !== "PUT" && req.method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT or PATCH for updateRole" });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database (e.g. 'profiles' or 'users' table)
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id, newRole } = req.body;
+
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing required field: ID" });
+        }
+
+        if (typeof newRole !== "string" || newRole.trim() === "" || newRole.length > 100) {
+          return res.status(400).json({ error: true, message: "Role must be a non-empty string with a maximum of 100 characters" });
+        }
+
+        const { error: updateError } = await supabase.from("profiles").update({ role: newRole }).eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update role: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Role updated successfully" });
+      }
+
+      // Get User and Role Endpoint
+      case "getRole": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getRole." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // Get user roles from database (e.g. 'profiles' or 'users' table)
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        let query = supabase.from("profiles").select("id, email, name, role");
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch user and role: " + error.message });
+
+        return res.status(200).json({ error: false, data });
       }
 
       // Non-existent Endpoint
