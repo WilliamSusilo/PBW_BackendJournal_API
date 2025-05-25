@@ -116,6 +116,185 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Sale created successfully" });
       }
 
+      // Add Order Delivery Endpoint
+      case "addOrderDelivery": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addOrderDelivery." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { customer_name, customer_phone, customer_email, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
+
+        if (!customer_name || !customer_phone || !customer_email || !shipping_address || !order_date || !delivery_date || !shipping_method || !payment_method || !status || !items || items.length === 0 || !grand_total) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const orderDate = new Date(order_date);
+        const month = orderDate.getMonth() + 1;
+        const year = orderDate.getFullYear();
+
+        const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+        const { data: latestOrder, error: fetchError } = await supabase
+          .from("order_deliveries")
+          .select("number")
+          .gte("order_date", `${year}-${String(month).padStart(2, "0")}-01`)
+          .lt("order_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          .order("number", { ascending: false })
+          .limit(1);
+
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch latest order number: " + fetchError.message });
+        }
+
+        let counter = 1;
+        if (latestOrder && latestOrder.length > 0) {
+          const lastNumber = latestOrder[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(6), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextOrderNumber = parseInt(`${prefix}${counter}`, 10);
+
+        const updatedItems = items.map((item) => {
+          const quantity = Number(item.quantity) || 0;
+          const price = Number(item.price) || 0;
+          const discount = Number(item.discount) || 0;
+          return {
+            ...item,
+            total_per_item: quantity * price - discount,
+          };
+        });
+
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        const { error: insertError } = await supabase.from("order_deliveries").insert([
+          {
+            user_id: user.id,
+            number: nextOrderNumber,
+            customer_name,
+            customer_phone,
+            customer_email,
+            shipping_address,
+            order_date,
+            delivery_date,
+            shipping_method,
+            payment_method,
+            status,
+            tracking_number,
+            notes,
+            items: updatedItems,
+            grand_total,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to create order delivery: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Order delivery created successfully" });
+      }
+
+      // Add Quotations Endpoint
+      case "addQuotation": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { customer_name, quotation_date, valid_until, status, terms, items, total } = req.body;
+
+        if (!customer_name || !quotation_date || !valid_until || !status || !terms || !items || items.length === 0 || !total) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const quoteDate = new Date(quotation_date);
+        const month = quoteDate.getMonth() + 1;
+        const year = quoteDate.getFullYear();
+
+        const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+        const { data: latestQuote, error: fetchError } = await supabase
+          .from("quotations")
+          .select("number")
+          .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
+          .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          .order("number", { ascending: false })
+          .limit(1);
+
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch latest quotation number: " + fetchError.message });
+        }
+
+        let counter = 1;
+        if (latestQuote && latestQuote.length > 0) {
+          const lastNumber = latestQuote[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(6), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextQuotationNumber = parseInt(`${prefix}${counter}`, 10);
+
+        const updatedItems = items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.unit_price) || 0;
+          const total_per_item = qty * unit_price;
+
+          return {
+            ...item,
+            total_per_item,
+          };
+        });
+
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        const { error: insertError } = await supabase.from("quotations").insert([
+          {
+            user_id: user.id,
+            number: nextQuotationNumber,
+            customer_name,
+            quotation_date,
+            valid_until,
+            status,
+            terms,
+            items: updatedItems,
+            total,
+          },
+        ]);
+
+        if (insertError) return res.status(500).json({ error: true, message: "Failed to create quotation: " + insertError.message });
+
+        return res.status(201).json({ error: false, message: "Quotation created successfully" });
+      }
+
       // Edit Sales Endpoint
       case "editSale": {
         if (method !== "PUT") {
@@ -171,6 +350,124 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Sale updated successfully" });
       }
 
+      // Edit Order Delivery Endpoint
+      case "editOrderDelivery": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editOrderDelivery." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { id, customer_name, customer_phone, customer_email, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
+
+        const updatedItems = items.map((item) => {
+          const quantity = Number(item.quantity) || 0;
+          const price = Number(item.price) || 0;
+          const discount = Number(item.discount) || 0;
+          return {
+            ...item,
+            total_per_item: quantity * price - discount,
+          };
+        });
+
+        const { error: updateError } = await supabase
+          .from("order_deliveries")
+          .update({
+            customer_name,
+            customer_phone,
+            customer_email,
+            shipping_address,
+            order_date,
+            delivery_date,
+            shipping_method,
+            payment_method,
+            status,
+            tracking_number,
+            notes,
+            items: updatedItems,
+            grand_total,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update order delivery: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Order delivery updated successfully" });
+      }
+
+      // Edit Quotations Endpoint
+      case "editQuotation": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { id, customer_name, quotation_date, valid_until, status, terms, items, total } = req.body;
+
+        const updatedItems = items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.unit_price) || 0;
+          const total_per_item = qty * unit_price;
+
+          return {
+            ...item,
+            total_per_item,
+          };
+        });
+
+        const { error: updateError } = await supabase
+          .from("quotations")
+          .update({
+            customer_name,
+            quotation_date,
+            valid_until,
+            status,
+            terms,
+            items: updatedItems,
+            total,
+          })
+          .eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update quotation: " + updateError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Quotation updated successfully" });
+      }
+
       // Delete Sale Endpoint
       case "deleteSale": {
         if (method !== "DELETE") {
@@ -213,6 +510,94 @@ module.exports = async (req, res) => {
         }
 
         return res.status(200).json({ error: false, message: "Sale deleted successfully" });
+      }
+
+      // Delete Order & Delivery Endpoint
+      case "deleteOrderDelivery": {
+        if (method !== "DELETE") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteOrderDelivery." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { id } = req.body;
+
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Order Delivery ID is required" });
+        }
+
+        const { data: sale, error: fetchError } = await supabase.from("order_deliveries").select("id").eq("id", id);
+
+        if (fetchError || !sale || sale.length === 0) {
+          return res.status(404).json({ error: true, message: "Order delivery not found" });
+        }
+
+        const { error: deleteError } = await supabase.from("order_deliveries").delete().eq("id", id);
+
+        if (deleteError) {
+          return res.status(500).json({ error: true, message: "Failed to delete order delivery: " + deleteError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Order delivery deleted successfully" });
+      }
+
+      // Delete Quotation Endpoint
+      case "deleteQuotation": {
+        if (method !== "DELETE") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use DELETE for deleteQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { id } = req.body;
+
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Quotation ID is required" });
+        }
+
+        const { data: sale, error: fetchError } = await supabase.from("quotations").select("id").eq("id", id);
+
+        if (fetchError || !sale || sale.length === 0) {
+          return res.status(404).json({ error: true, message: "Quotation not found" });
+        }
+
+        const { error: deleteError } = await supabase.from("quotations").delete().eq("id", id);
+
+        if (deleteError) {
+          return res.status(500).json({ error: true, message: "Failed to delete quotation: " + deleteError.message });
+        }
+
+        return res.status(200).json({ error: false, message: "Quotation deleted successfully" });
       }
 
       // Get Sale Endpoint
@@ -280,6 +665,146 @@ module.exports = async (req, res) => {
         const formattedData = data.map((sale) => ({
           ...sale,
           number: `Sales Invoice #${String(sale.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Order Delivery Endpoint
+      case "getOrderDelivery": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOrderDelivery." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("order_deliveries").select("*").order("order_date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["customer_name"];
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqFloatConditions.push("grand_total.eq." + parseFloat(search));
+          }
+
+          // For detect search like "Order #00588"
+          const codeMatch = search.match(/^order\s?#?0*(\d{7,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch order: " + error.message });
+
+        const formattedData = data.map((sale) => ({
+          ...sale,
+          number: `Order #${String(sale.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Quotation Endpoint
+      case "getQuotation": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("quotations").select("*").order("quotation_date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["customer_name"];
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqFloatConditions.push("total.eq." + parseFloat(search));
+          }
+
+          // For detect search like "Quotation #00588"
+          const codeMatch = search.match(/^quotation\s?#?0*(\d{7,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch quotation: " + error.message });
+
+        const formattedData = data.map((sale) => ({
+          ...sale,
+          number: `Quotation #${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
