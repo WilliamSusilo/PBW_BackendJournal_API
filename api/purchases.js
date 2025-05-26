@@ -2167,6 +2167,95 @@ module.exports = async (req, res) => {
         });
       }
 
+      //   Get Invoice Report Endpoint
+      case "getInvoiceReport": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoiceReport." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const invoiceId = req.query.id; // Make sure invoiceId is sent via query
+        if (!invoiceId) return res.status(400).json({ error: true, message: "Missing invoice id" });
+
+        const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
+
+        if (fetchError || !invoice) {
+          return res.status(404).json({ error: true, message: "Invoice not found" });
+        }
+
+        // ========== FluentReports ==========
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { Report } = require("fluentreports");
+        const stream = require("stream");
+        const pdfStream = new stream.PassThrough();
+
+        const report = new Report(pdfStream);
+
+        // Header laporan
+        report.pageHeader((rpt) => {
+          rpt.print("INVOICE REPORT", { fontSize: 18, bold: true, align: "center" });
+          rpt.newline();
+          rpt.print(`Invoice Number: ${invoice.number}`, { fontSize: 12 });
+          rpt.print(`Date: ${invoice.date}`, { fontSize: 12 });
+          rpt.print(`Due Date: ${invoice.due_date}`, { fontSize: 12 });
+          rpt.print(`Status: ${invoice.status}`, { fontSize: 12 });
+          rpt.newline();
+          rpt.print(["Item", "Qty", "Price", "Total"], {
+            columns: [150, 100, 100, 100],
+            fontSize: 10,
+            bold: true,
+          });
+          rpt.newline();
+        });
+
+        // Sumber data
+        report.data(invoice.items);
+
+        // Detail item invoice
+        report.detail((rpt, data) => {
+          rpt.print([data.name, data.qty, data.price, data.total_per_item], {
+            columns: [150, 100, 100, 100],
+            fontSize: 10,
+          });
+        });
+
+        report.finalSummary(() => {
+          report.newline();
+          report.print(`DPP: ${invoice.dpp}`, { fontSize: 12 });
+          report.print(`PPN: ${invoice.ppn}`, { fontSize: 12 });
+          report.print(`PPh: ${invoice.pph}`, { fontSize: 12 });
+          report.print(`Grand Total: ${invoice.grand_total}`, { fontSize: 14, bold: true });
+        });
+
+        // Render
+        report.render((err) => {
+          if (err) {
+            return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+          }
+        });
+
+        // PDF output
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename=invoice_${invoice.number}.pdf`);
+        pdfStream.pipe(res);
+
+        break;
+      }
+
       // Non-existent Endpoint
       default:
         return res.status(404).json({ error: true, message: "Endpoint not found" });

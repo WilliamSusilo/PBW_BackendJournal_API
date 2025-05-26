@@ -264,6 +264,12 @@ module.exports = async (req, res) => {
         const { email } = body;
         if (!email || !isValidEmail(email)) return res.status(400).json({ error: true, message: "Please provide a valid email address." });
 
+        const { data: user, error: userError } = await supabase.from("users").select("*").eq("email", email).single();
+
+        if (userError || !user) {
+          return res.status(404).json({ error: true, message: "Email not found in our records." });
+        }
+
         const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) throw error;
 

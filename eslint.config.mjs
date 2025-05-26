@@ -8,7 +8,7 @@ export default defineConfig([
   {
     files: ["**/*.{js,mjs,cjs,jsx}"],
     plugins: { js },
-    extends: ["js/recommended"],
+    extends: ["js/recommended", "plugin:@typescript-eslint/recommended"],
     languageOptions: {
       sourceType: "module",
       ecmaVersion: "latest",
