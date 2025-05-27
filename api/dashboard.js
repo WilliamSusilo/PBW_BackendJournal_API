@@ -65,6 +65,25 @@ module.exports = async (req, res) => {
         } = await supabase.auth.getUser();
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["finance", "accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
         const now = new Date();
         const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -124,6 +143,99 @@ module.exports = async (req, res) => {
             payments_received_current_month: paymentsCurrentMonth,
             payments_received_previous_month: paymentsPreviousMonth,
           },
+        });
+      }
+
+      //   Summary Profit Loss Endpoint
+      case "summaryProfitLoss": {
+        if (method !== "GET") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use GET for summaryProfitLoss.",
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["finance", "accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+
+        const { data: sales, error: salesError } = await supabase.from("sales").select("invoice_date, grand_total");
+
+        if (salesError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to fetch sales: " + salesError.message,
+          });
+        }
+
+        const { data: purchases, error: purchasesError } = await supabase.from("invoices").select("date, grand_total");
+
+        if (purchasesError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to fetch purchases: " + purchasesError.message,
+          });
+        }
+
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+        const result = months.map((month, index) => ({
+          month,
+          profit: 0,
+          loss: 0,
+        }));
+
+        sales.forEach((sale) => {
+          const d = new Date(sale.invoice_date);
+          if (d.getFullYear() === currentYear) {
+            const monthIndex = d.getMonth(); // 0 = Jan
+            result[monthIndex].profit += sale.grand_total || 0;
+          }
+        });
+
+        purchases.forEach((purchase) => {
+          const d = new Date(purchase.date);
+          if (d.getFullYear() === currentYear) {
+            const monthIndex = d.getMonth();
+            result[monthIndex].loss += purchase.grand_total || 0;
+          }
+        });
+
+        return res.status(200).json({
+          error: false,
+          year: currentYear,
+          data: result,
         });
       }
 
