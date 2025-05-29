@@ -1,9 +1,18 @@
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
 const Cors = require("cors");
 
+const formidable = require("formidable");
+
+// Disable default bodyParser only for file-upload use-case
+module.exports.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 // Initialization for middleware CORS
 const cors = Cors({
-  methods: ["GET", "POST", "OPTIONS", "PATCH", "PATCH", "DELETE"],
+  methods: ["GET", "POST", "OPTIONS", "PATCH", "PUT", "DELETE"],
   origin: ["http://localhost:8080", "https://prabaraja-webapp.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
@@ -27,9 +36,41 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  const { method, query } = req;
-  const body = req.body;
-  const action = method === "GET" ? query.action : body.action;
+  const { method, headers, query } = req;
+  let body = {};
+  let files = {};
+  let action = method === "GET" ? query.action : null;
+
+  if (method !== "GET" && headers["content-type"]?.includes("multipart/form-data")) {
+    const form = new formidable.IncomingForm({ keepExtensions: true });
+
+    try {
+      const { fields, files: parsedFiles } = await new Promise((resolve, reject) => {
+        form.parse(req, (err, fields, files) => {
+          if (err) reject(err);
+          else resolve({ fields, files });
+        });
+      });
+
+      // Normalize fields so they are not arrays
+      for (const key in fields) {
+        body[key] = Array.isArray(fields[key]) ? fields[key][0] : fields[key];
+      }
+
+      files = parsedFiles;
+      action = body.action;
+
+      // Save to req so it can be used in handler
+      req.body = body;
+      req.files = files;
+      console.log("Files:", req.files);
+    } catch (err) {
+      return res.status(400).json({ error: true, message: "Error parsing form-data: " + err.message });
+    }
+  } else if (method !== "GET") {
+    body = req.body;
+    action = body.action;
+  }
 
   try {
     switch (action) {
@@ -601,6 +642,7 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Transfer recorded successfully" });
       }
 
+      // Receive Money Endpoint
       case "receiveMoney": {
         if (method !== "POST") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use POST." });
@@ -617,7 +659,9 @@ module.exports = async (req, res) => {
           error: userError,
         } = await supabase.auth.getUser();
 
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
 
         // // Get user roles from database (e.g. 'profiles' or 'users' table)
         // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
@@ -638,31 +682,43 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const {
-          receiving_account_id,
-          amount,
-          payer_name,
-          reference,
-          date_received,
-          notes,
-          // proof_file, // Assume this is a base64 encoded file or a file object
-        } = req.body;
+        const { receiving_account_id, amount, payer_name, reference, date_received, notes } = req.body;
 
-        // let proof_url = null;
+        const proofFile = req.files?.proof_file;
+        let proof_url = null;
 
-        // if (proof_file) {
-        //   const fileName = `proofs/${user.id}_${Date.now()}.png`; // Adjust extension as needed
-        //   const { data: uploadData, error: uploadError } = await supabase.storage.from("receipts").upload(fileName, proof_file, {
-        //     contentType: "image/png", // Adjust content type as needed
-        //     upsert: false,
-        //   });
+        // Upload proof of transfer if any
+        if (proofFile) {
+          const fs = require("fs/promises");
+          const path = require("path");
 
-        //   if (uploadError) {
-        //     return res.status(500).json({ error: true, message: "Failed to upload proof: " + uploadError.message });
-        //   }
+          const proofFileArray = req.files?.proof_file;
+          const proofFile = Array.isArray(proofFileArray) ? proofFileArray[0] : proofFileArray;
 
-        //   proof_url = uploadData.path;
-        // }
+          if (!proofFile || !proofFile.filepath) {
+            return res.status(400).json({ error: true, message: "No proof file uploaded" });
+          }
+
+          const filePath = proofFile.filepath;
+
+          console.log("Proof file:", proofFile);
+          console.log("File path:", proofFile?.filepath);
+
+          const fileBuffer = await fs.readFile(filePath);
+          const fileExt = path.extname(proofFile.originalFilename || ".png");
+          const fileName = `proofs/${user.id}_${Date.now()}${fileExt}`;
+
+          const { data: uploadData, error: uploadError } = await supabase.storage.from("receipts").upload(fileName, fileBuffer, {
+            contentType: proofFile.mimetype || "image/png",
+            upsert: false,
+          });
+
+          if (uploadError) {
+            return res.status(500).json({ error: true, message: "Failed to upload proof: " + uploadError.message });
+          }
+
+          proof_url = uploadData.path;
+        }
 
         if (!receiving_account_id || !amount || !payer_name || !date_received) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
@@ -676,16 +732,12 @@ module.exports = async (req, res) => {
         const { data: toAccount, error: toError } = await supabase.from("cashbank").select("balance").eq("id", receiving_account_id).single();
 
         if (toError || !toAccount) {
-          return res.status(404).json({ error: true, message: "Source or destination account not found" });
+          return res.status(404).json({ error: true, message: "Receiving account not found" });
         }
 
-        // Balance before
         const toBefore = Number(toAccount.balance);
+        const toAfter = toBefore + amountValue;
 
-        // Balance after
-        const toAfter = toBefore + Number(amount);
-
-        // Update balance
         const { error: updateError } = await supabase.from("cashbank").update({ balance: toAfter }).eq("id", receiving_account_id);
 
         if (updateError) {
@@ -709,12 +761,12 @@ module.exports = async (req, res) => {
             user_id: user.id,
             number: newNumber,
             receiving_account: receiving_account_id,
-            amount: Number(amount),
+            amount: amountValue,
             payer_name,
             reference,
             date_received,
             notes,
-            // proof_url,
+            proof_url,
             target_balance_before: toBefore,
             target_balance_after: toAfter,
           },
