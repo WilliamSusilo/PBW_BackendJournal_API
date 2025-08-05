@@ -135,13 +135,48 @@ module.exports = async (req, res) => {
           })
           .reduce((sum, p) => sum + (p.amount || 0), 0);
 
+        // Generate monthly data for the past 6 months
+        const monthlyData = [];
+
+        for (let i = 5; i >= 0; i--) {
+          const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+          const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+
+          const monthName = start.toLocaleString("default", { month: "long" });
+
+          const monthlySales = sales
+            .filter((sale) => {
+              const d = new Date(sale.invoice_date);
+              return d >= start && d <= end;
+            })
+            .reduce((sum, sale) => sum + (sale.grand_total || 0), 0);
+
+          const monthlyPayments = payments
+            .filter((p) => {
+              const d = new Date(p.date_received);
+              return d >= start && d <= end;
+            })
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+          const profit = Math.max(monthlySales - monthlyPayments, 0);
+          const loss = Math.max(monthlyPayments - monthlySales, 0);
+
+          monthlyData.push({
+            month: monthName,
+            profit,
+            loss,
+          });
+        }
+
         return res.status(200).json({
           error: false,
           data: {
-            total_sales_current_month: totalSalesCurrentMonth,
-            total_sales_previous_month: totalSalesPreviousMonth,
-            payments_received_current_month: paymentsCurrentMonth,
-            payments_received_previous_month: paymentsPreviousMonth,
+            monthlyData,
+            currentMonthSales: totalSalesCurrentMonth,
+            previousMonthSales: totalSalesPreviousMonth,
+            currentMonthPayments: paymentsCurrentMonth,
+            previousMonthPayments: paymentsPreviousMonth,
           },
         });
       }
