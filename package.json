@@ -17,7 +17,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "fluentreports": "^1.4.4",
-    "formidable": "^3.5.4"
+    "formidable": "^3.5.4",
+    "jsreport": "^3.11.3",
+    "pdfkit": "^0.17.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

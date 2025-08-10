@@ -1,0 +1,1586 @@
+2025-07-26T11:39:16.591Z - info: Initializing jsreport (version: 4.10.0, configuration file: none, nodejs: 20.11.0)
+2025-07-26T11:39:16.595Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T11:39:16.597Z - info: Extensions location cache not found, crawling directories
+2025-07-26T11:39:21.857Z - info: Found 35 extension(s)
+2025-07-26T11:39:21.903Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T11:39:21.906Z - debug: Discovered 35 extensions
+2025-07-26T11:39:21.949Z - info: Using extension authentication@4.2.3
+2025-07-26T11:39:22.262Z - debug: Extension authentication@4.2.3 was disabled
+2025-07-26T11:39:22.264Z - info: Using extension base@4.0.0
+2025-07-26T11:39:22.269Z - info: Using extension child-templates@4.1.0
+2025-07-26T11:39:22.273Z - info: Using extension cli@4.1.1
+2025-07-26T11:39:22.281Z - info: Using extension components@4.0.2
+2025-07-26T11:39:22.285Z - info: Using extension data@4.1.0
+2025-07-26T11:39:22.289Z - info: Using extension express@4.2.2
+2025-07-26T11:39:23.075Z - info: Using extension freeze@4.0.0
+2025-07-26T11:39:23.079Z - info: Using extension fs-store@4.1.1
+2025-07-26T11:39:23.331Z - debug: Extension fs-store@4.1.1 was disabled
+2025-07-26T11:39:23.332Z - info: Using extension handlebars@4.0.1
+2025-07-26T11:39:23.334Z - info: Using extension import-export@4.0.8
+2025-07-26T11:39:23.360Z - info: Using extension jsrender@4.0.0
+2025-07-26T11:39:23.362Z - info: Using extension licensing@4.0.5
+2025-07-26T11:39:23.420Z - info: Using extension localization@4.0.1
+2025-07-26T11:39:23.423Z - info: Using extension npm@4.0.1
+2025-07-26T11:39:23.433Z - info: Using extension pdf-utils@4.4.0
+2025-07-26T11:39:23.436Z - info: Using extension reports@4.1.5
+2025-07-26T11:39:23.442Z - info: Using extension tags@4.0.1
+2025-07-26T11:39:23.446Z - info: Using extension text@4.0.2
+2025-07-26T11:39:23.448Z - info: Using extension version-control@4.1.1
+2025-07-26T11:39:23.472Z - info: Using extension assets@4.2.3
+2025-07-26T11:39:23.499Z - info: Using extension authorization@4.1.0
+2025-07-26T11:39:23.507Z - debug: Extension authorization@4.1.0 was disabled
+2025-07-26T11:39:23.508Z - info: Using extension browser-client@4.1.0
+2025-07-26T11:39:23.513Z - info: Using extension chrome-pdf@4.3.0
+2025-07-26T11:39:23.518Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T11:39:23.519Z - debug: Chrome custom launch options are protocolTimeout=60000
+2025-07-26T11:39:23.520Z - info: Using extension docx@4.9.0
+2025-07-26T11:39:23.525Z - info: Using extension html-to-xlsx@4.2.3
+2025-07-26T11:39:23.902Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T11:39:23.903Z - info: Using extension pptx@4.4.2
+2025-07-26T11:39:23.906Z - info: Using extension scheduling@4.1.0
+2025-07-26T11:39:23.943Z - info: Using extension scripts@4.2.0
+2025-07-26T11:39:23.945Z - info: Using extension static-pdf@4.1.0
+2025-07-26T11:39:23.947Z - info: Using extension studio@4.3.2
+2025-07-26T11:39:24.089Z - info: Using extension xlsx@4.5.0
+2025-07-26T11:39:24.093Z - info: Using extension public-templates@4.0.0
+2025-07-26T11:39:24.096Z - debug: Extension public-templates@4.0.0 was disabled
+2025-07-26T11:39:24.097Z - info: Using extension sample-template@4.0.1
+2025-07-26T11:39:24.101Z - info: Using extension studio-theme-dark@4.0.0
+2025-07-26T11:39:24.104Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T11:39:24.104Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T11:39:24.122Z - debug: studio default theme is: light
+2025-07-26T11:39:24.126Z - info: Creating default express app.
+2025-07-26T11:39:24.196Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T11:39:24.199Z - info: Verifying license key free
+2025-07-26T11:39:24.200Z - info: Using free license
+2025-07-26T11:39:24.207Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T11:39:24.209Z - info: Migration successful
+2025-07-26T11:39:24.210Z - debug: Creating samples is disabled
+2025-07-26T11:39:24.211Z - info: Initializing worker threads
+2025-07-26T11:39:24.211Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T11:39:25.567Z - error: Error occurred during reporter init: TypeError: SES failed to lockdown, Node.js domains have been initialized (SES_NO_DOMAINS)
+    at tameDomains (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:8717:13)
+    at repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13561:3)
+    at globalThis.repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13808:28)
+    at WorkerReporter.init (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\jsreport-core\lib\worker\reporter.js:92:7)
+    at async processAndResponse (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\advanced-workers\lib\workerHandler.js:42:17)
+2025-07-26T12:00:02.305Z - info: Initializing jsreport (version: 4.10.0, configuration file: none, nodejs: 20.11.0)
+2025-07-26T12:00:02.308Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:00:02.314Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:00:02.877Z - info: Found 35 extension(s)
+2025-07-26T12:00:02.919Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T12:00:02.922Z - debug: Discovered 35 extensions
+2025-07-26T12:00:02.967Z - info: Using extension authentication@4.2.3
+2025-07-26T12:00:03.220Z - debug: Extension authentication@4.2.3 was disabled
+2025-07-26T12:00:03.221Z - info: Using extension base@4.0.0
+2025-07-26T12:00:03.226Z - info: Using extension child-templates@4.1.0
+2025-07-26T12:00:03.230Z - info: Using extension cli@4.1.1
+2025-07-26T12:00:03.234Z - info: Using extension components@4.0.2
+2025-07-26T12:00:03.237Z - info: Using extension data@4.1.0
+2025-07-26T12:00:03.239Z - info: Using extension express@4.2.2
+2025-07-26T12:00:03.873Z - info: Using extension freeze@4.0.0
+2025-07-26T12:00:03.877Z - info: Using extension fs-store@4.1.1
+2025-07-26T12:00:04.070Z - debug: Extension fs-store@4.1.1 was disabled
+2025-07-26T12:00:04.070Z - info: Using extension handlebars@4.0.1
+2025-07-26T12:00:04.073Z - info: Using extension import-export@4.0.8
+2025-07-26T12:00:04.090Z - info: Using extension jsrender@4.0.0
+2025-07-26T12:00:04.093Z - info: Using extension licensing@4.0.5
+2025-07-26T12:00:04.136Z - info: Using extension localization@4.0.1
+2025-07-26T12:00:04.139Z - info: Using extension npm@4.0.1
+2025-07-26T12:00:04.144Z - info: Using extension pdf-utils@4.4.0
+2025-07-26T12:00:04.146Z - info: Using extension reports@4.1.5
+2025-07-26T12:00:04.151Z - info: Using extension tags@4.0.1
+2025-07-26T12:00:04.154Z - info: Using extension text@4.0.2
+2025-07-26T12:00:04.156Z - info: Using extension version-control@4.1.1
+2025-07-26T12:00:04.176Z - info: Using extension assets@4.2.3
+2025-07-26T12:00:04.201Z - info: Using extension authorization@4.1.0
+2025-07-26T12:00:04.207Z - debug: Extension authorization@4.1.0 was disabled
+2025-07-26T12:00:04.208Z - info: Using extension browser-client@4.1.0
+2025-07-26T12:00:04.213Z - info: Using extension chrome-pdf@4.3.0
+2025-07-26T12:00:04.218Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T12:00:04.219Z - debug: Chrome custom launch options are protocolTimeout=60000
+2025-07-26T12:00:04.219Z - info: Using extension docx@4.9.0
+2025-07-26T12:00:04.223Z - info: Using extension html-to-xlsx@4.2.3
+2025-07-26T12:00:04.574Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T12:00:04.575Z - info: Using extension pptx@4.4.2
+2025-07-26T12:00:04.579Z - info: Using extension scheduling@4.1.0
+2025-07-26T12:00:04.615Z - info: Using extension scripts@4.2.0
+2025-07-26T12:00:04.617Z - info: Using extension static-pdf@4.1.0
+2025-07-26T12:00:04.619Z - info: Using extension studio@4.3.2
+2025-07-26T12:00:04.729Z - info: Using extension xlsx@4.5.0
+2025-07-26T12:00:04.732Z - info: Using extension public-templates@4.0.0
+2025-07-26T12:00:04.734Z - debug: Extension public-templates@4.0.0 was disabled
+2025-07-26T12:00:04.734Z - info: Using extension sample-template@4.0.1
+2025-07-26T12:00:04.737Z - info: Using extension studio-theme-dark@4.0.0
+2025-07-26T12:00:04.739Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T12:00:04.740Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T12:00:04.756Z - debug: studio default theme is: light
+2025-07-26T12:00:04.761Z - info: Creating default express app.
+2025-07-26T12:00:04.821Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T12:00:04.822Z - info: Verifying license key free
+2025-07-26T12:00:04.823Z - info: Using free license
+2025-07-26T12:00:04.831Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T12:00:04.832Z - info: Migration successful
+2025-07-26T12:00:04.833Z - debug: Creating samples is disabled
+2025-07-26T12:00:04.834Z - info: Initializing worker threads
+2025-07-26T12:00:04.834Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T12:00:05.842Z - error: Error occurred during reporter init: TypeError: SES failed to lockdown, Node.js domains have been initialized (SES_NO_DOMAINS)
+    at tameDomains (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:8717:13)
+    at repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13561:3)
+    at globalThis.repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13808:28)
+    at WorkerReporter.init (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\jsreport-core\lib\worker\reporter.js:92:7)
+    at async processAndResponse (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\advanced-workers\lib\workerHandler.js:42:17)
+2025-07-26T12:00:29.608Z - info: Initializing jsreport (version: 4.10.0, configuration file: none, nodejs: 20.11.0)
+2025-07-26T12:00:29.613Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:00:29.618Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:00:29.945Z - info: Found 35 extension(s)
+2025-07-26T12:00:29.991Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T12:00:29.994Z - debug: Discovered 35 extensions
+2025-07-26T12:00:30.038Z - info: Using extension authentication@4.2.3
+2025-07-26T12:00:30.300Z - debug: Extension authentication@4.2.3 was disabled
+2025-07-26T12:00:30.301Z - info: Using extension base@4.0.0
+2025-07-26T12:00:30.306Z - info: Using extension child-templates@4.1.0
+2025-07-26T12:00:30.308Z - info: Using extension cli@4.1.1
+2025-07-26T12:00:30.313Z - info: Using extension components@4.0.2
+2025-07-26T12:00:30.317Z - info: Using extension data@4.1.0
+2025-07-26T12:00:30.320Z - info: Using extension express@4.2.2
+2025-07-26T12:00:30.930Z - info: Using extension freeze@4.0.0
+2025-07-26T12:00:30.932Z - info: Using extension fs-store@4.1.1
+2025-07-26T12:00:31.136Z - debug: Extension fs-store@4.1.1 was disabled
+2025-07-26T12:00:31.137Z - info: Using extension handlebars@4.0.1
+2025-07-26T12:00:31.139Z - info: Using extension import-export@4.0.8
+2025-07-26T12:00:31.156Z - info: Using extension jsrender@4.0.0
+2025-07-26T12:00:31.158Z - info: Using extension licensing@4.0.5
+2025-07-26T12:00:31.193Z - info: Using extension localization@4.0.1
+2025-07-26T12:00:31.196Z - info: Using extension npm@4.0.1
+2025-07-26T12:00:31.202Z - info: Using extension pdf-utils@4.4.0
+2025-07-26T12:00:31.205Z - info: Using extension reports@4.1.5
+2025-07-26T12:00:31.209Z - info: Using extension tags@4.0.1
+2025-07-26T12:00:31.212Z - info: Using extension text@4.0.2
+2025-07-26T12:00:31.215Z - info: Using extension version-control@4.1.1
+2025-07-26T12:00:31.234Z - info: Using extension assets@4.2.3
+2025-07-26T12:00:31.256Z - info: Using extension authorization@4.1.0
+2025-07-26T12:00:31.263Z - debug: Extension authorization@4.1.0 was disabled
+2025-07-26T12:00:31.264Z - info: Using extension browser-client@4.1.0
+2025-07-26T12:00:31.268Z - info: Using extension chrome-pdf@4.3.0
+2025-07-26T12:00:31.271Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T12:00:31.272Z - debug: Chrome custom launch options are protocolTimeout=60000
+2025-07-26T12:00:31.272Z - info: Using extension docx@4.9.0
+2025-07-26T12:00:31.276Z - info: Using extension html-to-xlsx@4.2.3
+2025-07-26T12:00:31.588Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T12:00:31.589Z - info: Using extension pptx@4.4.2
+2025-07-26T12:00:31.592Z - info: Using extension scheduling@4.1.0
+2025-07-26T12:00:31.624Z - info: Using extension scripts@4.2.0
+2025-07-26T12:00:31.626Z - info: Using extension static-pdf@4.1.0
+2025-07-26T12:00:31.628Z - info: Using extension studio@4.3.2
+2025-07-26T12:00:31.736Z - info: Using extension xlsx@4.5.0
+2025-07-26T12:00:31.740Z - info: Using extension public-templates@4.0.0
+2025-07-26T12:00:31.742Z - debug: Extension public-templates@4.0.0 was disabled
+2025-07-26T12:00:31.743Z - info: Using extension sample-template@4.0.1
+2025-07-26T12:00:31.747Z - info: Using extension studio-theme-dark@4.0.0
+2025-07-26T12:00:31.750Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T12:00:31.750Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T12:00:31.765Z - debug: studio default theme is: light
+2025-07-26T12:00:31.769Z - info: Creating default express app.
+2025-07-26T12:00:31.834Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T12:00:31.835Z - info: Verifying license key free
+2025-07-26T12:00:31.837Z - info: Using free license
+2025-07-26T12:00:31.845Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T12:00:31.847Z - info: Migration successful
+2025-07-26T12:00:31.849Z - debug: Creating samples is disabled
+2025-07-26T12:00:31.850Z - info: Initializing worker threads
+2025-07-26T12:00:31.850Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T12:00:32.894Z - error: Error occurred during reporter init: TypeError: SES failed to lockdown, Node.js domains have been initialized (SES_NO_DOMAINS)
+    at tameDomains (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:8717:13)
+    at repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13561:3)
+    at globalThis.repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13808:28)
+    at WorkerReporter.init (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\jsreport-core\lib\worker\reporter.js:92:7)
+    at async processAndResponse (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\advanced-workers\lib\workerHandler.js:42:17)
+2025-07-26T12:02:31.623Z - info: Initializing jsreport (version: 4.10.0, configuration file: none, nodejs: 20.11.0)
+2025-07-26T12:02:31.627Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:02:31.632Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:02:31.958Z - info: Found 35 extension(s)
+2025-07-26T12:02:32.004Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T12:02:32.007Z - debug: Discovered 35 extensions
+2025-07-26T12:02:32.050Z - info: Using extension authentication@4.2.3
+2025-07-26T12:02:32.316Z - debug: Extension authentication@4.2.3 was disabled
+2025-07-26T12:02:32.318Z - info: Using extension base@4.0.0
+2025-07-26T12:02:32.322Z - info: Using extension child-templates@4.1.0
+2025-07-26T12:02:32.325Z - info: Using extension cli@4.1.1
+2025-07-26T12:02:32.329Z - info: Using extension components@4.0.2
+2025-07-26T12:02:32.332Z - info: Using extension data@4.1.0
+2025-07-26T12:02:32.333Z - info: Using extension express@4.2.2
+2025-07-26T12:02:33.010Z - info: Using extension freeze@4.0.0
+2025-07-26T12:02:33.013Z - info: Using extension fs-store@4.1.1
+2025-07-26T12:02:33.207Z - debug: Extension fs-store@4.1.1 was disabled
+2025-07-26T12:02:33.208Z - info: Using extension handlebars@4.0.1
+2025-07-26T12:02:33.211Z - info: Using extension import-export@4.0.8
+2025-07-26T12:02:33.229Z - info: Using extension jsrender@4.0.0
+2025-07-26T12:02:33.231Z - info: Using extension licensing@4.0.5
+2025-07-26T12:02:33.270Z - info: Using extension localization@4.0.1
+2025-07-26T12:02:33.271Z - info: Using extension npm@4.0.1
+2025-07-26T12:02:33.276Z - info: Using extension pdf-utils@4.4.0
+2025-07-26T12:02:33.279Z - info: Using extension reports@4.1.5
+2025-07-26T12:02:33.283Z - info: Using extension tags@4.0.1
+2025-07-26T12:02:33.285Z - info: Using extension text@4.0.2
+2025-07-26T12:02:33.287Z - info: Using extension version-control@4.1.1
+2025-07-26T12:02:33.304Z - info: Using extension assets@4.2.3
+2025-07-26T12:02:33.324Z - info: Using extension authorization@4.1.0
+2025-07-26T12:02:33.330Z - debug: Extension authorization@4.1.0 was disabled
+2025-07-26T12:02:33.331Z - info: Using extension browser-client@4.1.0
+2025-07-26T12:02:33.334Z - info: Using extension chrome-pdf@4.3.0
+2025-07-26T12:02:33.339Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T12:02:33.340Z - debug: Chrome custom launch options are protocolTimeout=60000
+2025-07-26T12:02:33.340Z - info: Using extension docx@4.9.0
+2025-07-26T12:02:33.344Z - info: Using extension html-to-xlsx@4.2.3
+2025-07-26T12:02:33.661Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T12:02:33.661Z - info: Using extension pptx@4.4.2
+2025-07-26T12:02:33.664Z - info: Using extension scheduling@4.1.0
+2025-07-26T12:02:33.701Z - info: Using extension scripts@4.2.0
+2025-07-26T12:02:33.702Z - info: Using extension static-pdf@4.1.0
+2025-07-26T12:02:33.704Z - info: Using extension studio@4.3.2
+2025-07-26T12:02:33.821Z - info: Using extension xlsx@4.5.0
+2025-07-26T12:02:33.825Z - info: Using extension public-templates@4.0.0
+2025-07-26T12:02:33.827Z - debug: Extension public-templates@4.0.0 was disabled
+2025-07-26T12:02:33.827Z - info: Using extension sample-template@4.0.1
+2025-07-26T12:02:33.830Z - info: Using extension studio-theme-dark@4.0.0
+2025-07-26T12:02:33.833Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T12:02:33.833Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T12:02:33.849Z - debug: studio default theme is: light
+2025-07-26T12:02:33.853Z - info: Creating default express app.
+2025-07-26T12:02:33.917Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T12:02:33.918Z - info: Verifying license key free
+2025-07-26T12:02:33.920Z - info: Using free license
+2025-07-26T12:02:33.928Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T12:02:33.929Z - info: Migration successful
+2025-07-26T12:02:33.930Z - debug: Creating samples is disabled
+2025-07-26T12:02:33.931Z - info: Initializing worker threads
+2025-07-26T12:02:33.932Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T12:02:34.989Z - error: Error occurred during reporter init: TypeError: SES failed to lockdown, Node.js domains have been initialized (SES_NO_DOMAINS)
+    at tameDomains (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:8717:13)
+    at repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13561:3)
+    at globalThis.repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13808:28)
+    at WorkerReporter.init (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\jsreport-core\lib\worker\reporter.js:92:7)
+    at async processAndResponse (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\advanced-workers\lib\workerHandler.js:42:17)
+2025-07-26T12:04:13.245Z - info: Initializing jsreport (version: 4.10.0, configuration file: none, nodejs: 20.11.0)
+2025-07-26T12:04:13.248Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:04:13.254Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:04:13.643Z - info: Found 35 extension(s)
+2025-07-26T12:04:13.694Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T12:04:13.697Z - debug: Discovered 35 extensions
+2025-07-26T12:04:13.748Z - info: Using extension authentication@4.2.3
+2025-07-26T12:04:14.053Z - debug: Extension authentication@4.2.3 was disabled
+2025-07-26T12:04:14.055Z - info: Using extension base@4.0.0
+2025-07-26T12:04:14.060Z - info: Using extension child-templates@4.1.0
+2025-07-26T12:04:14.062Z - info: Using extension cli@4.1.1
+2025-07-26T12:04:14.067Z - info: Using extension components@4.0.2
+2025-07-26T12:04:14.070Z - info: Using extension data@4.1.0
+2025-07-26T12:04:14.072Z - info: Using extension express@4.2.2
+2025-07-26T12:04:14.920Z - info: Using extension freeze@4.0.0
+2025-07-26T12:04:14.924Z - info: Using extension fs-store@4.1.1
+2025-07-26T12:04:15.129Z - debug: Extension fs-store@4.1.1 was disabled
+2025-07-26T12:04:15.130Z - info: Using extension handlebars@4.0.1
+2025-07-26T12:04:15.133Z - info: Using extension import-export@4.0.8
+2025-07-26T12:04:15.149Z - info: Using extension jsrender@4.0.0
+2025-07-26T12:04:15.151Z - info: Using extension licensing@4.0.5
+2025-07-26T12:04:15.186Z - info: Using extension localization@4.0.1
+2025-07-26T12:04:15.189Z - info: Using extension npm@4.0.1
+2025-07-26T12:04:15.195Z - info: Using extension pdf-utils@4.4.0
+2025-07-26T12:04:15.197Z - info: Using extension reports@4.1.5
+2025-07-26T12:04:15.201Z - info: Using extension tags@4.0.1
+2025-07-26T12:04:15.203Z - info: Using extension text@4.0.2
+2025-07-26T12:04:15.205Z - info: Using extension version-control@4.1.1
+2025-07-26T12:04:15.225Z - info: Using extension assets@4.2.3
+2025-07-26T12:04:15.245Z - info: Using extension authorization@4.1.0
+2025-07-26T12:04:15.251Z - debug: Extension authorization@4.1.0 was disabled
+2025-07-26T12:04:15.251Z - info: Using extension browser-client@4.1.0
+2025-07-26T12:04:15.257Z - info: Using extension chrome-pdf@4.3.0
+2025-07-26T12:04:15.261Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T12:04:15.261Z - debug: Chrome custom launch options are protocolTimeout=60000
+2025-07-26T12:04:15.262Z - info: Using extension docx@4.9.0
+2025-07-26T12:04:15.265Z - info: Using extension html-to-xlsx@4.2.3
+2025-07-26T12:04:15.576Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T12:04:15.577Z - info: Using extension pptx@4.4.2
+2025-07-26T12:04:15.580Z - info: Using extension scheduling@4.1.0
+2025-07-26T12:04:15.614Z - info: Using extension scripts@4.2.0
+2025-07-26T12:04:15.617Z - info: Using extension static-pdf@4.1.0
+2025-07-26T12:04:15.618Z - info: Using extension studio@4.3.2
+2025-07-26T12:04:15.731Z - info: Using extension xlsx@4.5.0
+2025-07-26T12:04:15.734Z - info: Using extension public-templates@4.0.0
+2025-07-26T12:04:15.736Z - debug: Extension public-templates@4.0.0 was disabled
+2025-07-26T12:04:15.736Z - info: Using extension sample-template@4.0.1
+2025-07-26T12:04:15.740Z - info: Using extension studio-theme-dark@4.0.0
+2025-07-26T12:04:15.742Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T12:04:15.743Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T12:04:15.757Z - debug: studio default theme is: light
+2025-07-26T12:04:15.761Z - info: Creating default express app.
+2025-07-26T12:04:15.823Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T12:04:15.824Z - info: Verifying license key free
+2025-07-26T12:04:15.825Z - info: Using free license
+2025-07-26T12:04:15.832Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T12:04:15.834Z - info: Migration successful
+2025-07-26T12:04:15.835Z - debug: Creating samples is disabled
+2025-07-26T12:04:15.836Z - info: Initializing worker threads
+2025-07-26T12:04:15.836Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T12:04:16.918Z - error: Error occurred during reporter init: TypeError: SES failed to lockdown, Node.js domains have been initialized (SES_NO_DOMAINS)
+    at tameDomains (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:8717:13)
+    at repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13561:3)
+    at globalThis.repairIntrinsics (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\ses\index.js:13808:28)
+    at WorkerReporter.init (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\jsreport-core\lib\worker\reporter.js:92:7)
+    at async processAndResponse (D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\node_modules\@jsreport\advanced-workers\lib\workerHandler.js:42:17)
+2025-07-26T12:48:13.472Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T12:48:13.475Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T12:48:13.479Z - info: Extensions location cache C:\Users\Hp\AppData\Local\Temp\core\locations.json contains older information, crawling
+2025-07-26T12:48:16.750Z - info: Found 35 extension(s)
+2025-07-26T12:48:16.794Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T12:48:16.798Z - debug: Discovered 35 extensions
+2025-07-26T12:48:16.842Z - info: Using extension authentication@3.4.0
+2025-07-26T12:48:17.122Z - debug: Extension authentication@3.4.0 was disabled
+2025-07-26T12:48:17.123Z - info: Using extension base@3.0.1
+2025-07-26T12:48:17.126Z - info: Using extension child-templates@3.1.0
+2025-07-26T12:48:17.129Z - info: Using extension cli@3.2.3
+2025-07-26T12:48:17.134Z - info: Using extension components@3.3.0
+2025-07-26T12:48:17.137Z - info: Using extension data@3.1.0
+2025-07-26T12:48:17.139Z - info: Using extension express@3.7.1
+2025-07-26T12:48:17.649Z - info: Using extension freeze@3.0.1
+2025-07-26T12:48:17.651Z - info: Using extension fs-store@3.2.4
+2025-07-26T12:48:17.799Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T12:48:17.800Z - info: Using extension handlebars@3.2.1
+2025-07-26T12:48:17.802Z - info: Using extension import-export@3.2.0
+2025-07-26T12:48:17.819Z - info: Using extension jsrender@3.0.0
+2025-07-26T12:48:17.821Z - info: Using extension licensing@3.0.3
+2025-07-26T12:48:17.854Z - info: Using extension localization@3.2.2
+2025-07-26T12:48:17.857Z - info: Using extension npm@3.1.2
+2025-07-26T12:48:17.861Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T12:48:17.865Z - info: Using extension reports@3.1.1
+2025-07-26T12:48:17.868Z - info: Using extension tags@3.1.1
+2025-07-26T12:48:17.871Z - info: Using extension text@3.0.0
+2025-07-26T12:48:17.873Z - info: Using extension version-control@3.1.2
+2025-07-26T12:48:17.890Z - info: Using extension assets@3.6.0
+2025-07-26T12:48:17.910Z - info: Using extension authorization@3.3.0
+2025-07-26T12:48:17.916Z - debug: Extension authorization@3.3.0 was disabled
+2025-07-26T12:48:17.917Z - info: Using extension browser-client@3.1.1
+2025-07-26T12:48:17.921Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T12:48:17.924Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T12:48:17.925Z - info: Using extension docx@3.7.1
+2025-07-26T12:48:17.928Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T12:48:18.051Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T12:48:18.052Z - info: Using extension pptx@3.4.0
+2025-07-26T12:48:18.055Z - info: Using extension scheduling@3.0.3
+2025-07-26T12:48:18.108Z - info: Using extension scripts@3.4.1
+2025-07-26T12:48:18.109Z - info: Using extension static-pdf@3.0.1
+2025-07-26T12:48:18.112Z - info: Using extension studio@3.9.2
+2025-07-26T12:48:18.256Z - info: Using extension xlsx@3.4.0
+2025-07-26T12:48:18.294Z - info: Using extension public-templates@3.0.0
+2025-07-26T12:48:18.296Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T12:48:18.297Z - info: Using extension sample-template@3.2.1
+2025-07-26T12:48:18.300Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T12:48:18.302Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T12:48:18.303Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T12:48:18.318Z - debug: studio default theme is: light
+2025-07-26T12:48:18.327Z - info: Creating default express app.
+2025-07-26T12:48:18.385Z - info: jsreport server successfully started on http port: 5488
+2025-07-26T12:48:18.387Z - info: Verifying license key free
+2025-07-26T12:48:18.388Z - info: Using free license
+2025-07-26T12:48:18.391Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T12:48:18.392Z - info: Migration successful
+2025-07-26T12:48:18.394Z - debug: Creating samples is disabled
+2025-07-26T12:48:18.395Z - info: Initializing worker threads
+2025-07-26T12:48:18.395Z - debug: Extensions in workers: base, child-templates, components, data, express, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T12:48:18.900Z - info: 2 worker threads initialized in 505ms
+2025-07-26T12:48:18.901Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T12:48:18.902Z - info: reporter initialized
+2025-07-26T12:48:18.906Z - info: Render request 1 queued for execution and waiting for available worker rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:18.926Z - info: Starting rendering request 1 rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:18.926Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: handlebars } rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:18.927Z - debug: Inline data specified. rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:18.994Z - debug: Base url not specified, skipping its injection. rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:18.995Z - debug: Rendering engine handlebars rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:19.767Z - debug: Executing recipe chrome-pdf rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:20.986Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:21.846Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/223e5424-b8c7-4d07-b82c-1b86387d8205-chrome-pdf.html rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:21.847Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/223e5424-b8c7-4d07-b82c-1b86387d8205-chrome-pdf.html rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:21.919Z - debug: Running chrome with params {"timeout":59119,"margin":{},"printBackground":true} rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:21.920Z - debug: Skipping storing report. rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T12:48:21.920Z - info: Rendering request 1 finished in 3015 ms rootId=rzbc8f671sx3ish, id=rzbc8f671sx3ish
+2025-07-26T13:05:09.424Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T13:05:09.427Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T13:05:09.432Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T13:05:10.007Z - info: Found 35 extension(s)
+2025-07-26T13:05:10.057Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T13:05:10.060Z - debug: Discovered 35 extensions
+2025-07-26T13:05:10.104Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T13:05:10.106Z - info: Using extension base@3.0.1
+2025-07-26T13:05:10.114Z - info: Using extension child-templates@3.1.0
+2025-07-26T13:05:10.119Z - info: Using extension cli@3.2.3
+2025-07-26T13:05:10.127Z - info: Using extension components@3.3.0
+2025-07-26T13:05:10.131Z - info: Using extension data@3.1.0
+2025-07-26T13:05:10.133Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T13:05:10.133Z - info: Using extension freeze@3.0.1
+2025-07-26T13:05:10.135Z - info: Using extension fs-store@3.2.4
+2025-07-26T13:05:10.331Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T13:05:10.332Z - info: Using extension handlebars@3.2.1
+2025-07-26T13:05:10.334Z - info: Using extension import-export@3.2.0
+2025-07-26T13:05:10.515Z - info: Using extension jsrender@3.0.0
+2025-07-26T13:05:10.518Z - info: Using extension licensing@3.0.3
+2025-07-26T13:05:10.551Z - info: Using extension localization@3.2.2
+2025-07-26T13:05:10.554Z - info: Using extension npm@3.1.2
+2025-07-26T13:05:10.560Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T13:05:10.562Z - info: Using extension reports@3.1.1
+2025-07-26T13:05:10.566Z - info: Using extension tags@3.1.1
+2025-07-26T13:05:10.569Z - info: Using extension text@3.0.0
+2025-07-26T13:05:10.570Z - info: Using extension version-control@3.1.2
+2025-07-26T13:05:10.589Z - info: Using extension assets@3.6.0
+2025-07-26T13:05:10.611Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T13:05:10.612Z - info: Using extension browser-client@3.1.1
+2025-07-26T13:05:10.615Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T13:05:10.620Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T13:05:10.621Z - info: Using extension docx@3.7.1
+2025-07-26T13:05:10.625Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T13:05:10.759Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T13:05:10.760Z - info: Using extension pptx@3.4.0
+2025-07-26T13:05:10.762Z - info: Using extension scheduling@3.0.3
+2025-07-26T13:05:10.845Z - info: Using extension scripts@3.4.1
+2025-07-26T13:05:10.847Z - info: Using extension static-pdf@3.0.1
+2025-07-26T13:05:10.849Z - info: Using extension studio@3.9.2
+2025-07-26T13:05:11.048Z - info: Using extension xlsx@3.4.0
+2025-07-26T13:05:11.088Z - info: Using extension public-templates@3.0.0
+2025-07-26T13:05:11.091Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T13:05:11.091Z - info: Using extension sample-template@3.2.1
+2025-07-26T13:05:11.094Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T13:05:11.097Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T13:05:11.098Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T13:05:11.112Z - debug: studio default theme is: light
+2025-07-26T13:05:11.124Z - info: Verifying license key free
+2025-07-26T13:05:11.125Z - info: Using free license
+2025-07-26T13:05:11.129Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T13:05:11.130Z - info: Migration successful
+2025-07-26T13:05:11.131Z - debug: Creating samples is disabled
+2025-07-26T13:05:11.132Z - info: Initializing worker threads
+2025-07-26T13:05:11.132Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T13:05:11.619Z - info: 2 worker threads initialized in 487ms
+2025-07-26T13:05:11.619Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T13:05:11.621Z - info: reporter initialized
+2025-07-26T13:19:50.112Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T13:19:50.115Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T13:19:50.122Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T13:19:50.491Z - info: Found 35 extension(s)
+2025-07-26T13:19:50.551Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T13:19:50.554Z - debug: Discovered 35 extensions
+2025-07-26T13:19:50.599Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T13:19:50.600Z - info: Using extension base@3.0.1
+2025-07-26T13:19:50.606Z - info: Using extension child-templates@3.1.0
+2025-07-26T13:19:50.611Z - info: Using extension cli@3.2.3
+2025-07-26T13:19:50.615Z - info: Using extension components@3.3.0
+2025-07-26T13:19:50.618Z - info: Using extension data@3.1.0
+2025-07-26T13:19:50.621Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T13:19:50.622Z - info: Using extension freeze@3.0.1
+2025-07-26T13:19:50.624Z - info: Using extension fs-store@3.2.4
+2025-07-26T13:19:50.844Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T13:19:50.844Z - info: Using extension handlebars@3.2.1
+2025-07-26T13:19:50.846Z - info: Using extension import-export@3.2.0
+2025-07-26T13:19:51.030Z - info: Using extension jsrender@3.0.0
+2025-07-26T13:19:51.032Z - info: Using extension licensing@3.0.3
+2025-07-26T13:19:51.065Z - info: Using extension localization@3.2.2
+2025-07-26T13:19:51.067Z - info: Using extension npm@3.1.2
+2025-07-26T13:19:51.074Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T13:19:51.077Z - info: Using extension reports@3.1.1
+2025-07-26T13:19:51.080Z - info: Using extension tags@3.1.1
+2025-07-26T13:19:51.085Z - info: Using extension text@3.0.0
+2025-07-26T13:19:51.087Z - info: Using extension version-control@3.1.2
+2025-07-26T13:19:51.106Z - info: Using extension assets@3.6.0
+2025-07-26T13:19:51.127Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T13:19:51.128Z - info: Using extension browser-client@3.1.1
+2025-07-26T13:19:51.146Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T13:19:51.150Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T13:19:51.151Z - info: Using extension docx@3.7.1
+2025-07-26T13:19:51.155Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T13:19:51.298Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T13:19:51.299Z - info: Using extension pptx@3.4.0
+2025-07-26T13:19:51.302Z - info: Using extension scheduling@3.0.3
+2025-07-26T13:19:51.389Z - info: Using extension scripts@3.4.1
+2025-07-26T13:19:51.390Z - info: Using extension static-pdf@3.0.1
+2025-07-26T13:19:51.392Z - info: Using extension studio@3.9.2
+2025-07-26T13:19:51.601Z - info: Using extension xlsx@3.4.0
+2025-07-26T13:19:51.646Z - info: Using extension public-templates@3.0.0
+2025-07-26T13:19:51.648Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T13:19:51.649Z - info: Using extension sample-template@3.2.1
+2025-07-26T13:19:51.651Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T13:19:51.656Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T13:19:51.656Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T13:19:51.674Z - debug: studio default theme is: light
+2025-07-26T13:19:51.684Z - info: Verifying license key free
+2025-07-26T13:19:51.686Z - info: Using free license
+2025-07-26T13:19:51.691Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T13:19:51.692Z - info: Migration successful
+2025-07-26T13:19:51.693Z - debug: Creating samples is disabled
+2025-07-26T13:19:51.694Z - info: Initializing worker threads
+2025-07-26T13:19:51.695Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T13:19:52.241Z - info: 2 worker threads initialized in 547ms
+2025-07-26T13:19:52.241Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T13:19:52.243Z - info: reporter initialized
+2025-07-26T13:55:59.203Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T13:55:59.206Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T13:55:59.210Z - info: Extensions location cache C:\Users\Hp\AppData\Local\Temp\core\locations.json contains older information, crawling
+2025-07-26T13:56:03.395Z - info: Found 35 extension(s)
+2025-07-26T13:56:03.445Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T13:56:03.447Z - debug: Discovered 35 extensions
+2025-07-26T13:56:03.491Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T13:56:03.493Z - info: Using extension base@3.0.1
+2025-07-26T13:56:03.497Z - info: Using extension child-templates@3.1.0
+2025-07-26T13:56:03.502Z - info: Using extension cli@3.2.3
+2025-07-26T13:56:03.507Z - info: Using extension components@3.3.0
+2025-07-26T13:56:03.510Z - info: Using extension data@3.1.0
+2025-07-26T13:56:03.512Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T13:56:03.513Z - info: Using extension freeze@3.0.1
+2025-07-26T13:56:03.515Z - info: Using extension fs-store@3.2.4
+2025-07-26T13:56:03.723Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T13:56:03.724Z - info: Using extension handlebars@3.2.1
+2025-07-26T13:56:03.728Z - info: Using extension import-export@3.2.0
+2025-07-26T13:56:03.933Z - info: Using extension jsrender@3.0.0
+2025-07-26T13:56:03.936Z - info: Using extension licensing@3.0.3
+2025-07-26T13:56:03.977Z - info: Using extension localization@3.2.2
+2025-07-26T13:56:03.979Z - info: Using extension npm@3.1.2
+2025-07-26T13:56:03.986Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T13:56:03.989Z - info: Using extension reports@3.1.1
+2025-07-26T13:56:03.993Z - info: Using extension tags@3.1.1
+2025-07-26T13:56:03.997Z - info: Using extension text@3.0.0
+2025-07-26T13:56:03.999Z - info: Using extension version-control@3.1.2
+2025-07-26T13:56:04.019Z - info: Using extension assets@3.6.0
+2025-07-26T13:56:04.042Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T13:56:04.043Z - info: Using extension browser-client@3.1.1
+2025-07-26T13:56:04.046Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T13:56:04.050Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T13:56:04.050Z - info: Using extension docx@3.7.1
+2025-07-26T13:56:04.054Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T13:56:04.225Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T13:56:04.226Z - info: Using extension pptx@3.4.0
+2025-07-26T13:56:04.229Z - info: Using extension scheduling@3.0.3
+2025-07-26T13:56:04.331Z - info: Using extension scripts@3.4.1
+2025-07-26T13:56:04.332Z - info: Using extension static-pdf@3.0.1
+2025-07-26T13:56:04.334Z - info: Using extension studio@3.9.2
+2025-07-26T13:56:04.562Z - info: Using extension xlsx@3.4.0
+2025-07-26T13:56:04.608Z - info: Using extension public-templates@3.0.0
+2025-07-26T13:56:04.610Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T13:56:04.610Z - info: Using extension sample-template@3.2.1
+2025-07-26T13:56:04.613Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T13:56:04.616Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T13:56:04.617Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T13:56:04.633Z - debug: studio default theme is: light
+2025-07-26T13:56:04.644Z - info: Verifying license key free
+2025-07-26T13:56:04.646Z - info: Using free license
+2025-07-26T13:56:04.650Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T13:56:04.652Z - info: Migration successful
+2025-07-26T13:56:04.653Z - debug: Creating samples is disabled
+2025-07-26T13:56:04.654Z - info: Initializing worker threads
+2025-07-26T13:56:04.654Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T13:56:05.245Z - info: 2 worker threads initialized in 591ms
+2025-07-26T13:56:05.245Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T13:56:05.246Z - info: reporter initialized
+2025-07-26T13:56:05.252Z - info: Render request 1 queued for execution and waiting for available worker rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:05.276Z - info: Starting rendering request 1 rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:05.277Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:05.277Z - debug: Data item not defined for this template. rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:05.278Z - debug: Base url not specified, skipping its injection. rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:05.278Z - debug: Rendering engine none rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:06.238Z - debug: Executing recipe chrome-pdf rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:06.844Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:07.062Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/242bf8a1-3518-4ecd-a486-f5e4b5dcdeab-chrome-pdf.html rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:07.163Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/242bf8a1-3518-4ecd-a486-f5e4b5dcdeab-chrome-pdf.html rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:07.164Z - debug: Running chrome with params {"timeout":59006,"margin":{},"printBackground":true} rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:07.165Z - debug: Skipping storing report. rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T13:56:07.165Z - info: Rendering request 1 finished in 1915 ms rootId=hds9swa2tjsgxjg, id=hds9swa2tjsgxjg
+2025-07-26T14:02:05.016Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:02:05.018Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:02:05.025Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:02:05.630Z - info: Found 35 extension(s)
+2025-07-26T14:02:05.682Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:02:05.685Z - debug: Discovered 35 extensions
+2025-07-26T14:02:05.727Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:02:05.728Z - info: Using extension base@3.0.1
+2025-07-26T14:02:05.733Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:02:05.737Z - info: Using extension cli@3.2.3
+2025-07-26T14:02:05.742Z - info: Using extension components@3.3.0
+2025-07-26T14:02:05.745Z - info: Using extension data@3.1.0
+2025-07-26T14:02:05.747Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:02:05.748Z - info: Using extension freeze@3.0.1
+2025-07-26T14:02:05.750Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:02:05.955Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:02:05.956Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:02:05.959Z - info: Using extension import-export@3.2.0
+2025-07-26T14:02:06.162Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:02:06.164Z - info: Using extension licensing@3.0.3
+2025-07-26T14:02:06.203Z - info: Using extension localization@3.2.2
+2025-07-26T14:02:06.205Z - info: Using extension npm@3.1.2
+2025-07-26T14:02:06.212Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:02:06.215Z - info: Using extension reports@3.1.1
+2025-07-26T14:02:06.218Z - info: Using extension tags@3.1.1
+2025-07-26T14:02:06.222Z - info: Using extension text@3.0.0
+2025-07-26T14:02:06.223Z - info: Using extension version-control@3.1.2
+2025-07-26T14:02:06.243Z - info: Using extension assets@3.6.0
+2025-07-26T14:02:06.268Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:02:06.269Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:02:06.272Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:02:06.277Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:02:06.278Z - info: Using extension docx@3.7.1
+2025-07-26T14:02:06.281Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:02:06.423Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:02:06.424Z - info: Using extension pptx@3.4.0
+2025-07-26T14:02:06.427Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:02:06.520Z - info: Using extension scripts@3.4.1
+2025-07-26T14:02:06.522Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:02:06.524Z - info: Using extension studio@3.9.2
+2025-07-26T14:02:06.726Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:02:06.765Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:02:06.767Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:02:06.768Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:02:06.772Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:02:06.775Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:02:06.776Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:02:06.789Z - debug: studio default theme is: light
+2025-07-26T14:02:06.804Z - info: Verifying license key free
+2025-07-26T14:02:06.805Z - info: Using free license
+2025-07-26T14:02:06.809Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:02:06.810Z - info: Migration successful
+2025-07-26T14:02:06.820Z - debug: Creating samples is disabled
+2025-07-26T14:02:06.826Z - info: Initializing worker threads
+2025-07-26T14:02:06.832Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:02:07.385Z - info: 2 worker threads initialized in 559ms
+2025-07-26T14:02:07.386Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:02:07.387Z - info: reporter initialized
+2025-07-26T14:02:07.392Z - info: Render request 1 queued for execution and waiting for available worker rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:07.408Z - info: Starting rendering request 1 rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:07.409Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:07.409Z - debug: Data item not defined for this template. rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:07.413Z - debug: Base url not specified, skipping its injection. rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:07.414Z - debug: Rendering engine none rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.143Z - debug: Executing recipe chrome-pdf rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.465Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.665Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/ad937c5a-82b4-4530-b7c1-aaf63f8b352d-chrome-pdf.html rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.666Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/ad937c5a-82b4-4530-b7c1-aaf63f8b352d-chrome-pdf.html rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.666Z - debug: Running chrome with params {"timeout":59239,"margin":{},"printBackground":true} rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.715Z - debug: Skipping storing report. rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:02:08.716Z - info: Rendering request 1 finished in 1326 ms rootId=en6cldrzmiz8btr, id=en6cldrzmiz8btr
+2025-07-26T14:03:27.413Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:03:27.415Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:03:27.420Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:03:27.743Z - info: Found 35 extension(s)
+2025-07-26T14:03:27.790Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:03:27.794Z - debug: Discovered 35 extensions
+2025-07-26T14:03:27.835Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:03:27.836Z - info: Using extension base@3.0.1
+2025-07-26T14:03:27.841Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:03:27.845Z - info: Using extension cli@3.2.3
+2025-07-26T14:03:27.849Z - info: Using extension components@3.3.0
+2025-07-26T14:03:27.853Z - info: Using extension data@3.1.0
+2025-07-26T14:03:27.854Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:03:27.855Z - info: Using extension freeze@3.0.1
+2025-07-26T14:03:27.857Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:03:28.057Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:03:28.058Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:03:28.060Z - info: Using extension import-export@3.2.0
+2025-07-26T14:03:28.231Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:03:28.233Z - info: Using extension licensing@3.0.3
+2025-07-26T14:03:28.264Z - info: Using extension localization@3.2.2
+2025-07-26T14:03:28.267Z - info: Using extension npm@3.1.2
+2025-07-26T14:03:28.272Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:03:28.275Z - info: Using extension reports@3.1.1
+2025-07-26T14:03:28.278Z - info: Using extension tags@3.1.1
+2025-07-26T14:03:28.281Z - info: Using extension text@3.0.0
+2025-07-26T14:03:28.283Z - info: Using extension version-control@3.1.2
+2025-07-26T14:03:28.301Z - info: Using extension assets@3.6.0
+2025-07-26T14:03:28.322Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:03:28.323Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:03:28.327Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:03:28.330Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:03:28.331Z - info: Using extension docx@3.7.1
+2025-07-26T14:03:28.335Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:03:28.461Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:03:28.462Z - info: Using extension pptx@3.4.0
+2025-07-26T14:03:28.464Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:03:28.547Z - info: Using extension scripts@3.4.1
+2025-07-26T14:03:28.549Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:03:28.551Z - info: Using extension studio@3.9.2
+2025-07-26T14:03:28.744Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:03:28.781Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:03:28.784Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:03:28.784Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:03:28.787Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:03:28.789Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:03:28.790Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:03:28.805Z - debug: studio default theme is: light
+2025-07-26T14:03:28.816Z - info: Verifying license key free
+2025-07-26T14:03:28.817Z - info: Using free license
+2025-07-26T14:03:28.821Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:03:28.822Z - info: Migration successful
+2025-07-26T14:03:28.823Z - debug: Creating samples is disabled
+2025-07-26T14:03:28.824Z - info: Initializing worker threads
+2025-07-26T14:03:28.825Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:03:29.283Z - info: 2 worker threads initialized in 459ms
+2025-07-26T14:03:29.284Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:03:29.285Z - info: reporter initialized
+2025-07-26T14:03:29.289Z - info: Render request 1 queued for execution and waiting for available worker rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:29.306Z - info: Starting rendering request 1 rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:29.307Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:29.307Z - debug: Data item not defined for this template. rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:29.311Z - debug: Base url not specified, skipping its injection. rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:29.311Z - debug: Rendering engine none rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.056Z - debug: Executing recipe chrome-pdf rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.371Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.582Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/a3abba86-f2c5-4782-adad-be76a8a1e49b-chrome-pdf.html rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.583Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/a3abba86-f2c5-4782-adad-be76a8a1e49b-chrome-pdf.html rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.584Z - debug: Running chrome with params {"timeout":59227,"margin":{},"printBackground":true} rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.584Z - debug: Skipping storing report. rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:03:30.584Z - info: Rendering request 1 finished in 1295 ms rootId=icjai3jtb443qqk, id=icjai3jtb443qqk
+2025-07-26T14:10:36.899Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:10:36.901Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:10:36.907Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:10:37.239Z - info: Found 35 extension(s)
+2025-07-26T14:10:37.286Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:10:37.289Z - debug: Discovered 35 extensions
+2025-07-26T14:10:37.329Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:10:37.331Z - info: Using extension base@3.0.1
+2025-07-26T14:10:37.337Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:10:37.341Z - info: Using extension cli@3.2.3
+2025-07-26T14:10:37.345Z - info: Using extension components@3.3.0
+2025-07-26T14:10:37.348Z - info: Using extension data@3.1.0
+2025-07-26T14:10:37.351Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:10:37.352Z - info: Using extension freeze@3.0.1
+2025-07-26T14:10:37.354Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:10:37.546Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:10:37.547Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:10:37.550Z - info: Using extension import-export@3.2.0
+2025-07-26T14:10:37.728Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:10:37.730Z - info: Using extension licensing@3.0.3
+2025-07-26T14:10:37.764Z - info: Using extension localization@3.2.2
+2025-07-26T14:10:37.767Z - info: Using extension npm@3.1.2
+2025-07-26T14:10:37.773Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:10:37.776Z - info: Using extension reports@3.1.1
+2025-07-26T14:10:37.779Z - info: Using extension tags@3.1.1
+2025-07-26T14:10:37.783Z - info: Using extension text@3.0.0
+2025-07-26T14:10:37.785Z - info: Using extension version-control@3.1.2
+2025-07-26T14:10:37.802Z - info: Using extension assets@3.6.0
+2025-07-26T14:10:37.822Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:10:37.823Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:10:37.826Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:10:37.829Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:10:37.830Z - info: Using extension docx@3.7.1
+2025-07-26T14:10:37.835Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:10:37.969Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:10:37.969Z - info: Using extension pptx@3.4.0
+2025-07-26T14:10:37.972Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:10:38.053Z - info: Using extension scripts@3.4.1
+2025-07-26T14:10:38.056Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:10:38.058Z - info: Using extension studio@3.9.2
+2025-07-26T14:10:38.251Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:10:38.286Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:10:38.288Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:10:38.289Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:10:38.292Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:10:38.294Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:10:38.295Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:10:38.310Z - debug: studio default theme is: light
+2025-07-26T14:10:38.322Z - info: Verifying license key free
+2025-07-26T14:10:38.323Z - info: Using free license
+2025-07-26T14:10:38.327Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:10:38.328Z - info: Migration successful
+2025-07-26T14:10:38.329Z - debug: Creating samples is disabled
+2025-07-26T14:10:38.330Z - info: Initializing worker threads
+2025-07-26T14:10:38.331Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:10:38.807Z - info: 2 worker threads initialized in 477ms
+2025-07-26T14:10:38.807Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:10:38.808Z - info: reporter initialized
+2025-07-26T14:10:38.813Z - info: Render request 1 queued for execution and waiting for available worker rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:38.829Z - info: Starting rendering request 1 rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:38.830Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:38.830Z - debug: Data item not defined for this template. rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:38.835Z - debug: Base url not specified, skipping its injection. rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:38.835Z - debug: Rendering engine none rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:39.557Z - debug: Executing recipe chrome-pdf rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:39.870Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:40.085Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/83b6e17c-769f-456c-ab0e-75252f42e7cd-chrome-pdf.html rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:40.085Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/83b6e17c-769f-456c-ab0e-75252f42e7cd-chrome-pdf.html rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:40.086Z - debug: Running chrome with params {"timeout":59246,"margin":{},"printBackground":true} rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:40.099Z - debug: Skipping storing report. rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:10:40.099Z - info: Rendering request 1 finished in 1288 ms rootId=2cep55nk4r1oiif, id=2cep55nk4r1oiif
+2025-07-26T14:17:08.355Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:17:08.358Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:17:08.363Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:17:08.705Z - info: Found 35 extension(s)
+2025-07-26T14:17:08.749Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:17:08.751Z - debug: Discovered 35 extensions
+2025-07-26T14:17:08.793Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:17:08.794Z - info: Using extension base@3.0.1
+2025-07-26T14:17:08.801Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:17:08.806Z - info: Using extension cli@3.2.3
+2025-07-26T14:17:08.811Z - info: Using extension components@3.3.0
+2025-07-26T14:17:08.815Z - info: Using extension data@3.1.0
+2025-07-26T14:17:08.817Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:17:08.817Z - info: Using extension freeze@3.0.1
+2025-07-26T14:17:08.820Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:17:09.028Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:17:09.029Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:17:09.031Z - info: Using extension import-export@3.2.0
+2025-07-26T14:17:09.224Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:17:09.227Z - info: Using extension licensing@3.0.3
+2025-07-26T14:17:09.261Z - info: Using extension localization@3.2.2
+2025-07-26T14:17:09.262Z - info: Using extension npm@3.1.2
+2025-07-26T14:17:09.268Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:17:09.271Z - info: Using extension reports@3.1.1
+2025-07-26T14:17:09.274Z - info: Using extension tags@3.1.1
+2025-07-26T14:17:09.278Z - info: Using extension text@3.0.0
+2025-07-26T14:17:09.280Z - info: Using extension version-control@3.1.2
+2025-07-26T14:17:09.298Z - info: Using extension assets@3.6.0
+2025-07-26T14:17:09.321Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:17:09.321Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:17:09.325Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:17:09.329Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:17:09.330Z - info: Using extension docx@3.7.1
+2025-07-26T14:17:09.333Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:17:09.467Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:17:09.468Z - info: Using extension pptx@3.4.0
+2025-07-26T14:17:09.471Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:17:09.556Z - info: Using extension scripts@3.4.1
+2025-07-26T14:17:09.559Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:17:09.560Z - info: Using extension studio@3.9.2
+2025-07-26T14:17:09.777Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:17:09.817Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:17:09.819Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:17:09.820Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:17:09.822Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:17:09.824Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:17:09.825Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:17:09.840Z - debug: studio default theme is: light
+2025-07-26T14:17:09.852Z - info: Verifying license key free
+2025-07-26T14:17:09.853Z - info: Using free license
+2025-07-26T14:17:09.856Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:17:09.857Z - info: Migration successful
+2025-07-26T14:17:09.858Z - debug: Creating samples is disabled
+2025-07-26T14:17:09.858Z - info: Initializing worker threads
+2025-07-26T14:17:09.859Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:17:10.360Z - info: 2 worker threads initialized in 502ms
+2025-07-26T14:17:10.361Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:17:10.362Z - info: reporter initialized
+2025-07-26T14:17:10.366Z - info: Render request 1 queued for execution and waiting for available worker rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:10.383Z - info: Starting rendering request 1 rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:10.383Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:10.384Z - debug: Data item not defined for this template. rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:10.387Z - debug: Base url not specified, skipping its injection. rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:10.388Z - debug: Rendering engine none rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.136Z - debug: Executing recipe chrome-pdf rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.475Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.697Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/40a5489d-8b60-429f-a0e5-e7294603f114-chrome-pdf.html rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.698Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/40a5489d-8b60-429f-a0e5-e7294603f114-chrome-pdf.html rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.698Z - debug: Running chrome with params {"timeout":59218,"margin":{},"printBackground":true} rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.710Z - debug: Skipping storing report. rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:17:11.710Z - info: Rendering request 1 finished in 1347 ms rootId=wroeb57ize7397j, id=wroeb57ize7397j
+2025-07-26T14:19:28.407Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:19:28.409Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:19:28.414Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:19:28.753Z - info: Found 35 extension(s)
+2025-07-26T14:19:28.799Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:19:28.802Z - debug: Discovered 35 extensions
+2025-07-26T14:19:28.843Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:19:28.844Z - info: Using extension base@3.0.1
+2025-07-26T14:19:28.849Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:19:28.854Z - info: Using extension cli@3.2.3
+2025-07-26T14:19:28.859Z - info: Using extension components@3.3.0
+2025-07-26T14:19:28.862Z - info: Using extension data@3.1.0
+2025-07-26T14:19:28.863Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:19:28.864Z - info: Using extension freeze@3.0.1
+2025-07-26T14:19:28.866Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:19:29.064Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:19:29.064Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:19:29.068Z - info: Using extension import-export@3.2.0
+2025-07-26T14:19:29.256Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:19:29.258Z - info: Using extension licensing@3.0.3
+2025-07-26T14:19:29.293Z - info: Using extension localization@3.2.2
+2025-07-26T14:19:29.296Z - info: Using extension npm@3.1.2
+2025-07-26T14:19:29.302Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:19:29.305Z - info: Using extension reports@3.1.1
+2025-07-26T14:19:29.309Z - info: Using extension tags@3.1.1
+2025-07-26T14:19:29.313Z - info: Using extension text@3.0.0
+2025-07-26T14:19:29.315Z - info: Using extension version-control@3.1.2
+2025-07-26T14:19:29.333Z - info: Using extension assets@3.6.0
+2025-07-26T14:19:29.356Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:19:29.356Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:19:29.360Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:19:29.364Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:19:29.364Z - info: Using extension docx@3.7.1
+2025-07-26T14:19:29.368Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:19:29.500Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:19:29.501Z - info: Using extension pptx@3.4.0
+2025-07-26T14:19:29.505Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:19:29.588Z - info: Using extension scripts@3.4.1
+2025-07-26T14:19:29.590Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:19:29.592Z - info: Using extension studio@3.9.2
+2025-07-26T14:19:29.797Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:19:29.838Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:19:29.841Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:19:29.842Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:19:29.847Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:19:29.849Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:19:29.849Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:19:29.865Z - debug: studio default theme is: light
+2025-07-26T14:19:29.876Z - info: Verifying license key free
+2025-07-26T14:19:29.878Z - info: Using free license
+2025-07-26T14:19:29.881Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:19:29.883Z - info: Migration successful
+2025-07-26T14:19:29.884Z - debug: Creating samples is disabled
+2025-07-26T14:19:29.885Z - info: Initializing worker threads
+2025-07-26T14:19:29.885Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:19:30.401Z - info: 2 worker threads initialized in 516ms
+2025-07-26T14:19:30.401Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:19:30.403Z - info: reporter initialized
+2025-07-26T14:19:30.407Z - info: Render request 1 queued for execution and waiting for available worker rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:30.429Z - info: Starting rendering request 1 rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:30.429Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:30.430Z - debug: Data item not defined for this template. rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:30.430Z - debug: Base url not specified, skipping its injection. rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:30.431Z - debug: Rendering engine none rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.145Z - debug: Executing recipe chrome-pdf rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.467Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.670Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/bd43f7f4-30e2-472d-8097-42d55787a3d0-chrome-pdf.html rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.670Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/bd43f7f4-30e2-472d-8097-42d55787a3d0-chrome-pdf.html rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.671Z - debug: Running chrome with params {"timeout":59253,"margin":{},"printBackground":true} rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.734Z - debug: Skipping storing report. rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:19:31.734Z - info: Rendering request 1 finished in 1329 ms rootId=hnbxcieqw1hsudi, id=hnbxcieqw1hsudi
+2025-07-26T14:21:18.623Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:21:18.625Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:21:18.631Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:21:18.983Z - info: Found 35 extension(s)
+2025-07-26T14:21:19.046Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:21:19.048Z - debug: Discovered 35 extensions
+2025-07-26T14:21:19.097Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:21:19.099Z - info: Using extension base@3.0.1
+2025-07-26T14:21:19.105Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:21:19.109Z - info: Using extension cli@3.2.3
+2025-07-26T14:21:19.115Z - info: Using extension components@3.3.0
+2025-07-26T14:21:19.118Z - info: Using extension data@3.1.0
+2025-07-26T14:21:19.121Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:21:19.122Z - info: Using extension freeze@3.0.1
+2025-07-26T14:21:19.124Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:21:19.336Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:21:19.337Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:21:19.339Z - info: Using extension import-export@3.2.0
+2025-07-26T14:21:19.552Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:21:19.554Z - info: Using extension licensing@3.0.3
+2025-07-26T14:21:19.592Z - info: Using extension localization@3.2.2
+2025-07-26T14:21:19.594Z - info: Using extension npm@3.1.2
+2025-07-26T14:21:19.600Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:21:19.603Z - info: Using extension reports@3.1.1
+2025-07-26T14:21:19.607Z - info: Using extension tags@3.1.1
+2025-07-26T14:21:19.610Z - info: Using extension text@3.0.0
+2025-07-26T14:21:19.612Z - info: Using extension version-control@3.1.2
+2025-07-26T14:21:19.631Z - info: Using extension assets@3.6.0
+2025-07-26T14:21:19.655Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:21:19.655Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:21:19.659Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:21:19.663Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:21:19.664Z - info: Using extension docx@3.7.1
+2025-07-26T14:21:19.667Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:21:19.820Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:21:19.820Z - info: Using extension pptx@3.4.0
+2025-07-26T14:21:19.823Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:21:19.913Z - info: Using extension scripts@3.4.1
+2025-07-26T14:21:19.915Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:21:19.917Z - info: Using extension studio@3.9.2
+2025-07-26T14:21:20.186Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:21:20.227Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:21:20.229Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:21:20.230Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:21:20.233Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:21:20.237Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:21:20.237Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:21:20.251Z - debug: studio default theme is: light
+2025-07-26T14:21:20.262Z - info: Verifying license key free
+2025-07-26T14:21:20.264Z - info: Using free license
+2025-07-26T14:21:20.268Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:21:20.269Z - info: Migration successful
+2025-07-26T14:21:20.270Z - debug: Creating samples is disabled
+2025-07-26T14:21:20.271Z - info: Initializing worker threads
+2025-07-26T14:21:20.272Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:21:20.789Z - info: 2 worker threads initialized in 518ms
+2025-07-26T14:21:20.790Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:21:20.791Z - info: reporter initialized
+2025-07-26T14:21:20.798Z - info: Render request 1 queued for execution and waiting for available worker rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:20.829Z - info: Starting rendering request 1 rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:20.830Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:20.831Z - debug: Data item not defined for this template. rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:20.831Z - debug: Base url not specified, skipping its injection. rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:20.832Z - debug: Rendering engine none rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:21.591Z - debug: Executing recipe chrome-pdf rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.016Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.226Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/5a58426e-c61f-460c-b87d-58886f230934-chrome-pdf.html rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.227Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/5a58426e-c61f-460c-b87d-58886f230934-chrome-pdf.html rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.227Z - debug: Running chrome with params {"timeout":59199,"margin":{},"printBackground":true} rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.253Z - debug: Skipping storing report. rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:22.253Z - info: Rendering request 1 finished in 1459 ms rootId=xoxmwjskfoo880r, id=xoxmwjskfoo880r
+2025-07-26T14:21:57.296Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:21:57.298Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:21:57.303Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:21:57.638Z - info: Found 35 extension(s)
+2025-07-26T14:21:57.683Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:21:57.686Z - debug: Discovered 35 extensions
+2025-07-26T14:21:57.729Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:21:57.730Z - info: Using extension base@3.0.1
+2025-07-26T14:21:57.735Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:21:57.739Z - info: Using extension cli@3.2.3
+2025-07-26T14:21:57.744Z - info: Using extension components@3.3.0
+2025-07-26T14:21:57.747Z - info: Using extension data@3.1.0
+2025-07-26T14:21:57.749Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:21:57.750Z - info: Using extension freeze@3.0.1
+2025-07-26T14:21:57.752Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:21:57.969Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:21:57.970Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:21:57.973Z - info: Using extension import-export@3.2.0
+2025-07-26T14:21:58.165Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:21:58.167Z - info: Using extension licensing@3.0.3
+2025-07-26T14:21:58.204Z - info: Using extension localization@3.2.2
+2025-07-26T14:21:58.206Z - info: Using extension npm@3.1.2
+2025-07-26T14:21:58.211Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:21:58.213Z - info: Using extension reports@3.1.1
+2025-07-26T14:21:58.217Z - info: Using extension tags@3.1.1
+2025-07-26T14:21:58.220Z - info: Using extension text@3.0.0
+2025-07-26T14:21:58.222Z - info: Using extension version-control@3.1.2
+2025-07-26T14:21:58.240Z - info: Using extension assets@3.6.0
+2025-07-26T14:21:58.261Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:21:58.262Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:21:58.265Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:21:58.269Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:21:58.270Z - info: Using extension docx@3.7.1
+2025-07-26T14:21:58.273Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:21:58.418Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:21:58.419Z - info: Using extension pptx@3.4.0
+2025-07-26T14:21:58.421Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:21:58.513Z - info: Using extension scripts@3.4.1
+2025-07-26T14:21:58.515Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:21:58.517Z - info: Using extension studio@3.9.2
+2025-07-26T14:21:58.731Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:21:58.772Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:21:58.773Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:21:58.774Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:21:58.778Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:21:58.781Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:21:58.781Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:21:58.795Z - debug: studio default theme is: light
+2025-07-26T14:21:58.805Z - info: Verifying license key free
+2025-07-26T14:21:58.807Z - info: Using free license
+2025-07-26T14:21:58.813Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:21:58.814Z - info: Migration successful
+2025-07-26T14:21:58.815Z - debug: Creating samples is disabled
+2025-07-26T14:21:58.817Z - info: Initializing worker threads
+2025-07-26T14:21:58.817Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:21:59.316Z - info: 2 worker threads initialized in 499ms
+2025-07-26T14:21:59.316Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:21:59.317Z - info: reporter initialized
+2025-07-26T14:21:59.321Z - info: Render request 1 queued for execution and waiting for available worker rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:21:59.340Z - info: Starting rendering request 1 rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:21:59.341Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:21:59.341Z - debug: Data item not defined for this template. rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:21:59.342Z - debug: Base url not specified, skipping its injection. rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:21:59.342Z - debug: Rendering engine none rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.095Z - debug: Executing recipe chrome-pdf rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.424Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.639Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/e33da0f8-da0f-4881-a183-d2802a28df3c-chrome-pdf.html rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.639Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/e33da0f8-da0f-4881-a183-d2802a28df3c-chrome-pdf.html rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.640Z - debug: Running chrome with params {"timeout":59220,"margin":{},"printBackground":true} rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.673Z - debug: Skipping storing report. rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:00.674Z - info: Rendering request 1 finished in 1354 ms rootId=mzivxp6cf5t26k2, id=mzivxp6cf5t26k2
+2025-07-26T14:22:23.285Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:22:23.288Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:22:23.293Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:22:23.619Z - info: Found 35 extension(s)
+2025-07-26T14:22:23.667Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:22:23.670Z - debug: Discovered 35 extensions
+2025-07-26T14:22:23.712Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:22:23.713Z - info: Using extension base@3.0.1
+2025-07-26T14:22:23.718Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:22:23.723Z - info: Using extension cli@3.2.3
+2025-07-26T14:22:23.729Z - info: Using extension components@3.3.0
+2025-07-26T14:22:23.732Z - info: Using extension data@3.1.0
+2025-07-26T14:22:23.734Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:22:23.734Z - info: Using extension freeze@3.0.1
+2025-07-26T14:22:23.737Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:22:23.932Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:22:23.933Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:22:23.935Z - info: Using extension import-export@3.2.0
+2025-07-26T14:22:24.114Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:22:24.115Z - info: Using extension licensing@3.0.3
+2025-07-26T14:22:24.152Z - info: Using extension localization@3.2.2
+2025-07-26T14:22:24.155Z - info: Using extension npm@3.1.2
+2025-07-26T14:22:24.160Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:22:24.163Z - info: Using extension reports@3.1.1
+2025-07-26T14:22:24.167Z - info: Using extension tags@3.1.1
+2025-07-26T14:22:24.170Z - info: Using extension text@3.0.0
+2025-07-26T14:22:24.172Z - info: Using extension version-control@3.1.2
+2025-07-26T14:22:24.192Z - info: Using extension assets@3.6.0
+2025-07-26T14:22:24.214Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:22:24.214Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:22:24.218Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:22:24.222Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:22:24.223Z - info: Using extension docx@3.7.1
+2025-07-26T14:22:24.226Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:22:24.368Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:22:24.368Z - info: Using extension pptx@3.4.0
+2025-07-26T14:22:24.371Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:22:24.458Z - info: Using extension scripts@3.4.1
+2025-07-26T14:22:24.460Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:22:24.461Z - info: Using extension studio@3.9.2
+2025-07-26T14:22:24.680Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:22:24.720Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:22:24.722Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:22:24.723Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:22:24.726Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:22:24.729Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:22:24.730Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:22:24.746Z - debug: studio default theme is: light
+2025-07-26T14:22:24.758Z - info: Verifying license key free
+2025-07-26T14:22:24.760Z - info: Using free license
+2025-07-26T14:22:24.765Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:22:24.766Z - info: Migration successful
+2025-07-26T14:22:24.768Z - debug: Creating samples is disabled
+2025-07-26T14:22:24.769Z - info: Initializing worker threads
+2025-07-26T14:22:24.770Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:22:25.249Z - info: 2 worker threads initialized in 480ms
+2025-07-26T14:22:25.250Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:22:25.251Z - info: reporter initialized
+2025-07-26T14:22:25.255Z - info: Render request 1 queued for execution and waiting for available worker rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.272Z - info: Starting rendering request 1 rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.272Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.273Z - debug: Data item not defined for this template. rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.277Z - debug: Base url not specified, skipping its injection. rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.278Z - debug: Rendering engine none rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:25.999Z - debug: Executing recipe chrome-pdf rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.325Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.530Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/eeb8f5f4-4885-4ff3-b8b6-7702436777a5-chrome-pdf.html rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.530Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/eeb8f5f4-4885-4ff3-b8b6-7702436777a5-chrome-pdf.html rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.606Z - debug: Running chrome with params {"timeout":59248,"margin":{},"printBackground":true} rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.607Z - debug: Skipping storing report. rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:22:26.607Z - info: Rendering request 1 finished in 1353 ms rootId=s9hvhby6377ssep, id=s9hvhby6377ssep
+2025-07-26T14:26:26.504Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-26T14:26:26.507Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:26:26.512Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-26T14:26:26.834Z - info: Found 35 extension(s)
+2025-07-26T14:26:26.878Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-26T14:26:26.881Z - debug: Discovered 35 extensions
+2025-07-26T14:26:26.921Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-26T14:26:26.923Z - info: Using extension base@3.0.1
+2025-07-26T14:26:26.928Z - info: Using extension child-templates@3.1.0
+2025-07-26T14:26:26.933Z - info: Using extension cli@3.2.3
+2025-07-26T14:26:26.937Z - info: Using extension components@3.3.0
+2025-07-26T14:26:26.939Z - info: Using extension data@3.1.0
+2025-07-26T14:26:26.941Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-26T14:26:26.941Z - info: Using extension freeze@3.0.1
+2025-07-26T14:26:26.944Z - info: Using extension fs-store@3.2.4
+2025-07-26T14:26:27.131Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-26T14:26:27.131Z - info: Using extension handlebars@3.2.1
+2025-07-26T14:26:27.134Z - info: Using extension import-export@3.2.0
+2025-07-26T14:26:27.318Z - info: Using extension jsrender@3.0.0
+2025-07-26T14:26:27.320Z - info: Using extension licensing@3.0.3
+2025-07-26T14:26:27.352Z - info: Using extension localization@3.2.2
+2025-07-26T14:26:27.354Z - info: Using extension npm@3.1.2
+2025-07-26T14:26:27.360Z - info: Using extension pdf-utils@3.9.0
+2025-07-26T14:26:27.363Z - info: Using extension reports@3.1.1
+2025-07-26T14:26:27.366Z - info: Using extension tags@3.1.1
+2025-07-26T14:26:27.369Z - info: Using extension text@3.0.0
+2025-07-26T14:26:27.371Z - info: Using extension version-control@3.1.2
+2025-07-26T14:26:27.390Z - info: Using extension assets@3.6.0
+2025-07-26T14:26:27.409Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-26T14:26:27.410Z - info: Using extension browser-client@3.1.1
+2025-07-26T14:26:27.413Z - info: Using extension chrome-pdf@3.3.0
+2025-07-26T14:26:27.416Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-26T14:26:27.417Z - info: Using extension docx@3.7.1
+2025-07-26T14:26:27.420Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-26T14:26:27.553Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-26T14:26:27.554Z - info: Using extension pptx@3.4.0
+2025-07-26T14:26:27.556Z - info: Using extension scheduling@3.0.3
+2025-07-26T14:26:27.639Z - info: Using extension scripts@3.4.1
+2025-07-26T14:26:27.641Z - info: Using extension static-pdf@3.0.1
+2025-07-26T14:26:27.642Z - info: Using extension studio@3.9.2
+2025-07-26T14:26:27.832Z - info: Using extension xlsx@3.4.0
+2025-07-26T14:26:27.871Z - info: Using extension public-templates@3.0.0
+2025-07-26T14:26:27.874Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-26T14:26:27.874Z - info: Using extension sample-template@3.2.1
+2025-07-26T14:26:27.878Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-26T14:26:27.880Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-26T14:26:27.880Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-26T14:26:27.894Z - debug: studio default theme is: light
+2025-07-26T14:26:27.903Z - info: Verifying license key free
+2025-07-26T14:26:27.904Z - info: Using free license
+2025-07-26T14:26:27.908Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-26T14:26:27.909Z - info: Migration successful
+2025-07-26T14:26:27.910Z - debug: Creating samples is disabled
+2025-07-26T14:26:27.911Z - info: Initializing worker threads
+2025-07-26T14:26:27.912Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-26T14:26:28.380Z - info: 2 worker threads initialized in 469ms
+2025-07-26T14:26:28.381Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-26T14:26:28.382Z - info: reporter initialized
+2025-07-26T14:26:28.388Z - info: Render request 1 queued for execution and waiting for available worker rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:28.404Z - info: Starting rendering request 1 rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:28.405Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:28.405Z - debug: Data item not defined for this template. rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:28.409Z - debug: Base url not specified, skipping its injection. rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:28.409Z - debug: Rendering engine none rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.117Z - debug: Executing recipe chrome-pdf rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.445Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.659Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/f41d6bdb-a507-40db-aa63-0717412f8a3f-chrome-pdf.html rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.660Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/f41d6bdb-a507-40db-aa63-0717412f8a3f-chrome-pdf.html rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.660Z - debug: Running chrome with params {"timeout":59263,"margin":{},"printBackground":true} rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.667Z - debug: Skipping storing report. rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-26T14:26:29.668Z - info: Rendering request 1 finished in 1283 ms rootId=jm9eo405yaraqmg, id=jm9eo405yaraqmg
+2025-07-27T13:41:07.564Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-07-27T13:41:07.567Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-27T13:41:07.593Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-07-27T13:41:08.716Z - info: Found 35 extension(s)
+2025-07-27T13:41:08.805Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-07-27T13:41:08.808Z - debug: Discovered 35 extensions
+2025-07-27T13:41:08.852Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-07-27T13:41:08.853Z - info: Using extension base@3.0.1
+2025-07-27T13:41:08.860Z - info: Using extension child-templates@3.1.0
+2025-07-27T13:41:08.866Z - info: Using extension cli@3.2.3
+2025-07-27T13:41:08.873Z - info: Using extension components@3.3.0
+2025-07-27T13:41:08.878Z - info: Using extension data@3.1.0
+2025-07-27T13:41:08.882Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-07-27T13:41:08.882Z - info: Using extension freeze@3.0.1
+2025-07-27T13:41:08.886Z - info: Using extension fs-store@3.2.4
+2025-07-27T13:41:09.295Z - debug: Extension fs-store@3.2.4 was disabled
+2025-07-27T13:41:09.296Z - info: Using extension handlebars@3.2.1
+2025-07-27T13:41:09.300Z - info: Using extension import-export@3.2.0
+2025-07-27T13:41:09.664Z - info: Using extension jsrender@3.0.0
+2025-07-27T13:41:09.666Z - info: Using extension licensing@3.0.3
+2025-07-27T13:41:09.736Z - info: Using extension localization@3.2.2
+2025-07-27T13:41:09.738Z - info: Using extension npm@3.1.2
+2025-07-27T13:41:09.742Z - info: Using extension pdf-utils@3.9.0
+2025-07-27T13:41:09.746Z - info: Using extension reports@3.1.1
+2025-07-27T13:41:09.752Z - info: Using extension tags@3.1.1
+2025-07-27T13:41:09.758Z - info: Using extension text@3.0.0
+2025-07-27T13:41:09.761Z - info: Using extension version-control@3.1.2
+2025-07-27T13:41:09.795Z - info: Using extension assets@3.6.0
+2025-07-27T13:41:09.833Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-07-27T13:41:09.833Z - info: Using extension browser-client@3.1.1
+2025-07-27T13:41:09.839Z - info: Using extension chrome-pdf@3.3.0
+2025-07-27T13:41:09.844Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-07-27T13:41:09.845Z - info: Using extension docx@3.7.1
+2025-07-27T13:41:09.848Z - info: Using extension html-to-xlsx@3.3.1
+2025-07-27T13:41:10.133Z - info: html-to-xlsx detected chrome as available html engine
+2025-07-27T13:41:10.134Z - info: Using extension pptx@3.4.0
+2025-07-27T13:41:10.139Z - info: Using extension scheduling@3.0.3
+2025-07-27T13:41:10.263Z - info: Using extension scripts@3.4.1
+2025-07-27T13:41:10.265Z - info: Using extension static-pdf@3.0.1
+2025-07-27T13:41:10.268Z - info: Using extension studio@3.9.2
+2025-07-27T13:41:10.683Z - info: Using extension xlsx@3.4.0
+2025-07-27T13:41:10.757Z - info: Using extension public-templates@3.0.0
+2025-07-27T13:41:10.760Z - debug: Extension public-templates@3.0.0 was disabled
+2025-07-27T13:41:10.760Z - info: Using extension sample-template@3.2.1
+2025-07-27T13:41:10.764Z - info: Using extension studio-theme-dark@3.0.1
+2025-07-27T13:41:10.768Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-07-27T13:41:10.768Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-07-27T13:41:10.784Z - debug: studio default theme is: light
+2025-07-27T13:41:10.796Z - info: Verifying license key free
+2025-07-27T13:41:10.799Z - info: Using free license
+2025-07-27T13:41:10.803Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-07-27T13:41:10.804Z - info: Migration successful
+2025-07-27T13:41:10.804Z - debug: Creating samples is disabled
+2025-07-27T13:41:10.805Z - info: Initializing worker threads
+2025-07-27T13:41:10.806Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-07-27T13:41:11.486Z - info: 2 worker threads initialized in 681ms
+2025-07-27T13:41:11.487Z - info: Starting temp files cleanup with 180000ms threshold
+2025-07-27T13:41:11.489Z - info: reporter initialized
+2025-07-27T13:41:11.493Z - info: Render request 1 queued for execution and waiting for available worker rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:11.513Z - info: Starting rendering request 1 rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:11.514Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:11.514Z - debug: Data item not defined for this template. rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:11.514Z - debug: Base url not specified, skipping its injection. rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:11.515Z - debug: Rendering engine none rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:12.535Z - debug: Executing recipe chrome-pdf rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:13.551Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:14.305Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/e3e8e456-b488-4db1-8e15-ce9acf103185-chrome-pdf.html rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:14.402Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/e3e8e456-b488-4db1-8e15-ce9acf103185-chrome-pdf.html rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:14.403Z - debug: Running chrome with params {"timeout":58949,"margin":{},"printBackground":true} rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:14.403Z - debug: Skipping storing report. rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-07-27T13:41:14.404Z - info: Rendering request 1 finished in 2911 ms rootId=5bcdkifuk0m4g1f, id=5bcdkifuk0m4g1f
+2025-08-01T12:58:05.251Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-08-01T12:58:05.253Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:58:05.268Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:58:06.580Z - info: Found 35 extension(s)
+2025-08-01T12:58:06.694Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-08-01T12:58:06.698Z - debug: Discovered 35 extensions
+2025-08-01T12:58:06.757Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-08-01T12:58:06.759Z - info: Using extension base@3.0.1
+2025-08-01T12:58:06.767Z - info: Using extension child-templates@3.1.0
+2025-08-01T12:58:06.774Z - info: Using extension cli@3.2.3
+2025-08-01T12:58:06.785Z - info: Using extension components@3.3.0
+2025-08-01T12:58:06.789Z - info: Using extension data@3.1.0
+2025-08-01T12:58:06.792Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-08-01T12:58:06.793Z - info: Using extension freeze@3.0.1
+2025-08-01T12:58:06.798Z - info: Using extension fs-store@3.2.4
+2025-08-01T12:58:07.204Z - debug: Extension fs-store@3.2.4 was disabled
+2025-08-01T12:58:07.205Z - info: Using extension handlebars@3.2.1
+2025-08-01T12:58:07.208Z - info: Using extension import-export@3.2.0
+2025-08-01T12:58:07.596Z - info: Using extension jsrender@3.0.0
+2025-08-01T12:58:07.599Z - info: Using extension licensing@3.0.3
+2025-08-01T12:58:07.668Z - info: Using extension localization@3.2.2
+2025-08-01T12:58:07.670Z - info: Using extension npm@3.1.2
+2025-08-01T12:58:07.677Z - info: Using extension pdf-utils@3.9.0
+2025-08-01T12:58:07.680Z - info: Using extension reports@3.1.1
+2025-08-01T12:58:07.686Z - info: Using extension tags@3.1.1
+2025-08-01T12:58:07.692Z - info: Using extension text@3.0.0
+2025-08-01T12:58:07.694Z - info: Using extension version-control@3.1.2
+2025-08-01T12:58:07.728Z - info: Using extension assets@3.6.0
+2025-08-01T12:58:07.766Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-08-01T12:58:07.767Z - info: Using extension browser-client@3.1.1
+2025-08-01T12:58:07.774Z - info: Using extension chrome-pdf@3.3.0
+2025-08-01T12:58:07.778Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-08-01T12:58:07.779Z - info: Using extension docx@3.7.1
+2025-08-01T12:58:07.784Z - info: Using extension html-to-xlsx@3.3.1
+2025-08-01T12:58:08.087Z - info: html-to-xlsx detected chrome as available html engine
+2025-08-01T12:58:08.088Z - info: Using extension pptx@3.4.0
+2025-08-01T12:58:08.093Z - info: Using extension scheduling@3.0.3
+2025-08-01T12:58:08.242Z - info: Using extension scripts@3.4.1
+2025-08-01T12:58:08.247Z - info: Using extension static-pdf@3.0.1
+2025-08-01T12:58:08.250Z - info: Using extension studio@3.9.2
+2025-08-01T12:58:08.809Z - info: Using extension xlsx@3.4.0
+2025-08-01T12:58:08.904Z - info: Using extension public-templates@3.0.0
+2025-08-01T12:58:08.907Z - debug: Extension public-templates@3.0.0 was disabled
+2025-08-01T12:58:08.908Z - info: Using extension sample-template@3.2.1
+2025-08-01T12:58:08.914Z - info: Using extension studio-theme-dark@3.0.1
+2025-08-01T12:58:08.918Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-08-01T12:58:08.918Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-08-01T12:58:08.941Z - debug: studio default theme is: light
+2025-08-01T12:58:08.957Z - info: Verifying license key free
+2025-08-01T12:58:08.959Z - info: Using free license
+2025-08-01T12:58:08.965Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-08-01T12:58:08.966Z - info: Migration successful
+2025-08-01T12:58:08.968Z - debug: Creating samples is disabled
+2025-08-01T12:58:08.969Z - info: Initializing worker threads
+2025-08-01T12:58:08.969Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-08-01T12:58:09.779Z - info: 2 worker threads initialized in 809ms
+2025-08-01T12:58:09.779Z - info: Starting temp files cleanup with 180000ms threshold
+2025-08-01T12:58:09.781Z - info: reporter initialized
+2025-08-01T12:58:09.787Z - info: Render request 1 queued for execution and waiting for available worker rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:09.809Z - info: Starting rendering request 1 rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:09.810Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:09.811Z - debug: Data item not defined for this template. rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:09.812Z - debug: Base url not specified, skipping its injection. rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:09.812Z - debug: Rendering engine none rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:10.900Z - debug: Executing recipe chrome-pdf rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:11.638Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:12.508Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/54c21ba8-ec0d-4ff7-ae97-c7e72bf74d4f-chrome-pdf.html rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:12.614Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/54c21ba8-ec0d-4ff7-ae97-c7e72bf74d4f-chrome-pdf.html rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:12.615Z - debug: Running chrome with params {"timeout":58880,"margin":{},"printBackground":true} rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:12.630Z - debug: Skipping storing report. rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:12.631Z - info: Rendering request 1 finished in 2847 ms rootId=pg5crqxiyaezz0b, id=pg5crqxiyaezz0b
+2025-08-01T12:58:50.120Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-08-01T12:58:50.122Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:58:50.127Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:58:50.453Z - info: Found 35 extension(s)
+2025-08-01T12:58:50.495Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-08-01T12:58:50.498Z - debug: Discovered 35 extensions
+2025-08-01T12:58:50.539Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-08-01T12:58:50.541Z - info: Using extension base@3.0.1
+2025-08-01T12:58:50.547Z - info: Using extension child-templates@3.1.0
+2025-08-01T12:58:50.551Z - info: Using extension cli@3.2.3
+2025-08-01T12:58:50.555Z - info: Using extension components@3.3.0
+2025-08-01T12:58:50.558Z - info: Using extension data@3.1.0
+2025-08-01T12:58:50.560Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-08-01T12:58:50.561Z - info: Using extension freeze@3.0.1
+2025-08-01T12:58:50.563Z - info: Using extension fs-store@3.2.4
+2025-08-01T12:58:50.747Z - debug: Extension fs-store@3.2.4 was disabled
+2025-08-01T12:58:50.748Z - info: Using extension handlebars@3.2.1
+2025-08-01T12:58:50.750Z - info: Using extension import-export@3.2.0
+2025-08-01T12:58:50.918Z - info: Using extension jsrender@3.0.0
+2025-08-01T12:58:50.920Z - info: Using extension licensing@3.0.3
+2025-08-01T12:58:50.951Z - info: Using extension localization@3.2.2
+2025-08-01T12:58:50.954Z - info: Using extension npm@3.1.2
+2025-08-01T12:58:50.959Z - info: Using extension pdf-utils@3.9.0
+2025-08-01T12:58:50.963Z - info: Using extension reports@3.1.1
+2025-08-01T12:58:50.966Z - info: Using extension tags@3.1.1
+2025-08-01T12:58:50.969Z - info: Using extension text@3.0.0
+2025-08-01T12:58:50.971Z - info: Using extension version-control@3.1.2
+2025-08-01T12:58:50.990Z - info: Using extension assets@3.6.0
+2025-08-01T12:58:51.009Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-08-01T12:58:51.010Z - info: Using extension browser-client@3.1.1
+2025-08-01T12:58:51.013Z - info: Using extension chrome-pdf@3.3.0
+2025-08-01T12:58:51.017Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-08-01T12:58:51.018Z - info: Using extension docx@3.7.1
+2025-08-01T12:58:51.021Z - info: Using extension html-to-xlsx@3.3.1
+2025-08-01T12:58:51.151Z - info: html-to-xlsx detected chrome as available html engine
+2025-08-01T12:58:51.151Z - info: Using extension pptx@3.4.0
+2025-08-01T12:58:51.155Z - info: Using extension scheduling@3.0.3
+2025-08-01T12:58:51.236Z - info: Using extension scripts@3.4.1
+2025-08-01T12:58:51.238Z - info: Using extension static-pdf@3.0.1
+2025-08-01T12:58:51.240Z - info: Using extension studio@3.9.2
+2025-08-01T12:58:51.420Z - info: Using extension xlsx@3.4.0
+2025-08-01T12:58:51.458Z - info: Using extension public-templates@3.0.0
+2025-08-01T12:58:51.460Z - debug: Extension public-templates@3.0.0 was disabled
+2025-08-01T12:58:51.461Z - info: Using extension sample-template@3.2.1
+2025-08-01T12:58:51.463Z - info: Using extension studio-theme-dark@3.0.1
+2025-08-01T12:58:51.466Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-08-01T12:58:51.466Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-08-01T12:58:51.479Z - debug: studio default theme is: light
+2025-08-01T12:58:51.488Z - info: Verifying license key free
+2025-08-01T12:58:51.490Z - info: Using free license
+2025-08-01T12:58:51.495Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-08-01T12:58:51.495Z - info: Migration successful
+2025-08-01T12:58:51.496Z - debug: Creating samples is disabled
+2025-08-01T12:58:51.497Z - info: Initializing worker threads
+2025-08-01T12:58:51.498Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-08-01T12:58:51.973Z - info: 2 worker threads initialized in 476ms
+2025-08-01T12:58:51.974Z - info: Starting temp files cleanup with 180000ms threshold
+2025-08-01T12:58:51.976Z - info: reporter initialized
+2025-08-01T12:58:51.980Z - info: Render request 1 queued for execution and waiting for available worker rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:51.999Z - info: Starting rendering request 1 rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:51.999Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:52.000Z - debug: Data item not defined for this template. rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:52.001Z - debug: Base url not specified, skipping its injection. rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:52.001Z - debug: Rendering engine none rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:52.683Z - debug: Executing recipe chrome-pdf rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.016Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.225Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/6be81224-5b5d-4fef-b873-4965dfbdde3c-chrome-pdf.html rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.226Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/6be81224-5b5d-4fef-b873-4965dfbdde3c-chrome-pdf.html rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.226Z - debug: Running chrome with params {"timeout":59292,"margin":{},"printBackground":true} rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.244Z - debug: Skipping storing report. rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:58:53.245Z - info: Rendering request 1 finished in 1266 ms rootId=77e5w6wlbq77paq, id=77e5w6wlbq77paq
+2025-08-01T12:59:11.127Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-08-01T12:59:11.129Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:59:11.135Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T12:59:11.467Z - info: Found 35 extension(s)
+2025-08-01T12:59:11.509Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-08-01T12:59:11.512Z - debug: Discovered 35 extensions
+2025-08-01T12:59:11.554Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-08-01T12:59:11.556Z - info: Using extension base@3.0.1
+2025-08-01T12:59:11.561Z - info: Using extension child-templates@3.1.0
+2025-08-01T12:59:11.565Z - info: Using extension cli@3.2.3
+2025-08-01T12:59:11.570Z - info: Using extension components@3.3.0
+2025-08-01T12:59:11.572Z - info: Using extension data@3.1.0
+2025-08-01T12:59:11.574Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-08-01T12:59:11.575Z - info: Using extension freeze@3.0.1
+2025-08-01T12:59:11.578Z - info: Using extension fs-store@3.2.4
+2025-08-01T12:59:11.761Z - debug: Extension fs-store@3.2.4 was disabled
+2025-08-01T12:59:11.761Z - info: Using extension handlebars@3.2.1
+2025-08-01T12:59:11.763Z - info: Using extension import-export@3.2.0
+2025-08-01T12:59:11.935Z - info: Using extension jsrender@3.0.0
+2025-08-01T12:59:11.938Z - info: Using extension licensing@3.0.3
+2025-08-01T12:59:11.970Z - info: Using extension localization@3.2.2
+2025-08-01T12:59:11.972Z - info: Using extension npm@3.1.2
+2025-08-01T12:59:11.977Z - info: Using extension pdf-utils@3.9.0
+2025-08-01T12:59:11.980Z - info: Using extension reports@3.1.1
+2025-08-01T12:59:11.983Z - info: Using extension tags@3.1.1
+2025-08-01T12:59:11.987Z - info: Using extension text@3.0.0
+2025-08-01T12:59:11.988Z - info: Using extension version-control@3.1.2
+2025-08-01T12:59:12.007Z - info: Using extension assets@3.6.0
+2025-08-01T12:59:12.027Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-08-01T12:59:12.027Z - info: Using extension browser-client@3.1.1
+2025-08-01T12:59:12.031Z - info: Using extension chrome-pdf@3.3.0
+2025-08-01T12:59:12.034Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-08-01T12:59:12.035Z - info: Using extension docx@3.7.1
+2025-08-01T12:59:12.038Z - info: Using extension html-to-xlsx@3.3.1
+2025-08-01T12:59:12.162Z - info: html-to-xlsx detected chrome as available html engine
+2025-08-01T12:59:12.163Z - info: Using extension pptx@3.4.0
+2025-08-01T12:59:12.165Z - info: Using extension scheduling@3.0.3
+2025-08-01T12:59:12.245Z - info: Using extension scripts@3.4.1
+2025-08-01T12:59:12.248Z - info: Using extension static-pdf@3.0.1
+2025-08-01T12:59:12.250Z - info: Using extension studio@3.9.2
+2025-08-01T12:59:12.444Z - info: Using extension xlsx@3.4.0
+2025-08-01T12:59:12.485Z - info: Using extension public-templates@3.0.0
+2025-08-01T12:59:12.487Z - debug: Extension public-templates@3.0.0 was disabled
+2025-08-01T12:59:12.487Z - info: Using extension sample-template@3.2.1
+2025-08-01T12:59:12.490Z - info: Using extension studio-theme-dark@3.0.1
+2025-08-01T12:59:12.493Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-08-01T12:59:12.494Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-08-01T12:59:12.507Z - debug: studio default theme is: light
+2025-08-01T12:59:12.518Z - info: Verifying license key free
+2025-08-01T12:59:12.522Z - info: Using free license
+2025-08-01T12:59:12.526Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-08-01T12:59:12.527Z - info: Migration successful
+2025-08-01T12:59:12.528Z - debug: Creating samples is disabled
+2025-08-01T12:59:12.529Z - info: Initializing worker threads
+2025-08-01T12:59:12.530Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-08-01T12:59:13.049Z - info: 2 worker threads initialized in 520ms
+2025-08-01T12:59:13.050Z - info: Starting temp files cleanup with 180000ms threshold
+2025-08-01T12:59:13.051Z - info: reporter initialized
+2025-08-01T12:59:13.055Z - info: Render request 1 queued for execution and waiting for available worker rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.079Z - info: Starting rendering request 1 rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.080Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.081Z - debug: Data item not defined for this template. rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.081Z - debug: Base url not specified, skipping its injection. rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.082Z - debug: Rendering engine none rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:13.782Z - debug: Executing recipe chrome-pdf rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.097Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.320Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/82d4eb13-d7cb-4687-a69c-d12454f865d0-chrome-pdf.html rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.321Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/82d4eb13-d7cb-4687-a69c-d12454f865d0-chrome-pdf.html rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.322Z - debug: Running chrome with params {"timeout":59264,"margin":{},"printBackground":true} rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.366Z - debug: Skipping storing report. rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T12:59:14.366Z - info: Rendering request 1 finished in 1312 ms rootId=5ahjo7fgpwrp8um, id=5ahjo7fgpwrp8um
+2025-08-01T13:12:02.271Z - info: Initializing jsreport (version: 3.11.3, configuration file: none, nodejs: 20.11.0)
+2025-08-01T13:12:02.287Z - info: Searching for available extensions in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T13:12:02.325Z - info: Extensions location cache contains up to date information, skipping crawling in D:\William Susilo - Kuliah\Magang\PT Prabasena Baratawijaya (Prabaraja)\Project App Prabaraja\Web App - Jurnal\PBW_Backend_API\
+2025-08-01T13:12:07.907Z - info: Found 35 extension(s)
+2025-08-01T13:12:08.130Z - debug: Writing extension locations cache to C:\Users\Hp\AppData\Local\Temp\core\locations.json
+2025-08-01T13:12:08.137Z - debug: Discovered 35 extensions
+2025-08-01T13:12:08.336Z - debug: Extension authentication@3.4.0 is disabled, skipping
+2025-08-01T13:12:08.345Z - info: Using extension base@3.0.1
+2025-08-01T13:12:08.383Z - info: Using extension child-templates@3.1.0
+2025-08-01T13:12:08.405Z - info: Using extension cli@3.2.3
+2025-08-01T13:12:08.425Z - info: Using extension components@3.3.0
+2025-08-01T13:12:08.440Z - info: Using extension data@3.1.0
+2025-08-01T13:12:08.455Z - debug: Extension express@3.7.1 is disabled, skipping
+2025-08-01T13:12:08.464Z - info: Using extension freeze@3.0.1
+2025-08-01T13:12:08.512Z - info: Using extension fs-store@3.2.4
+2025-08-01T13:12:10.156Z - debug: Extension fs-store@3.2.4 was disabled
+2025-08-01T13:12:10.160Z - info: Using extension handlebars@3.2.1
+2025-08-01T13:12:10.172Z - info: Using extension import-export@3.2.0
+2025-08-01T13:12:11.828Z - info: Using extension jsrender@3.0.0
+2025-08-01T13:12:11.845Z - info: Using extension licensing@3.0.3
+2025-08-01T13:12:12.205Z - info: Using extension localization@3.2.2
+2025-08-01T13:12:12.217Z - info: Using extension npm@3.1.2
+2025-08-01T13:12:12.244Z - info: Using extension pdf-utils@3.9.0
+2025-08-01T13:12:12.263Z - info: Using extension reports@3.1.1
+2025-08-01T13:12:12.309Z - info: Using extension tags@3.1.1
+2025-08-01T13:12:12.337Z - info: Using extension text@3.0.0
+2025-08-01T13:12:12.365Z - info: Using extension version-control@3.1.2
+2025-08-01T13:12:12.563Z - info: Using extension assets@3.6.0
+2025-08-01T13:12:12.768Z - debug: Extension authorization@3.3.0 is disabled, skipping
+2025-08-01T13:12:12.771Z - info: Using extension browser-client@3.1.1
+2025-08-01T13:12:12.828Z - info: Using extension chrome-pdf@3.3.0
+2025-08-01T13:12:12.851Z - debug: Chrome strategy is chrome-pool, numberOfWorkers: 1
+2025-08-01T13:12:12.854Z - info: Using extension docx@3.7.1
+2025-08-01T13:12:12.871Z - info: Using extension html-to-xlsx@3.3.1
+2025-08-01T13:12:14.132Z - info: html-to-xlsx detected chrome as available html engine
+2025-08-01T13:12:14.143Z - info: Using extension pptx@3.4.0
+2025-08-01T13:12:14.181Z - info: Using extension scheduling@3.0.3
+2025-08-01T13:12:14.673Z - info: Using extension scripts@3.4.1
+2025-08-01T13:12:14.681Z - info: Using extension static-pdf@3.0.1
+2025-08-01T13:12:14.687Z - info: Using extension studio@3.9.2
+2025-08-01T13:12:16.091Z - info: Using extension xlsx@3.4.0
+2025-08-01T13:12:16.381Z - info: Using extension public-templates@3.0.0
+2025-08-01T13:12:16.431Z - debug: Extension public-templates@3.0.0 was disabled
+2025-08-01T13:12:16.433Z - info: Using extension sample-template@3.2.1
+2025-08-01T13:12:16.561Z - info: Using extension studio-theme-dark@3.0.1
+2025-08-01T13:12:16.579Z - info: Using general timeout for rendering (reportTimeout: 60000)
+2025-08-01T13:12:16.582Z - info: Using memory provider for template store. The saved templates will be lost after restart
+2025-08-01T13:12:16.658Z - debug: studio default theme is: light
+2025-08-01T13:12:16.699Z - info: Verifying license key free
+2025-08-01T13:12:16.704Z - info: Using free license
+2025-08-01T13:12:16.750Z - info: Migrating templates chrome settings (waitForNetworkIddle -> waitForNetworkIdle)
+2025-08-01T13:12:16.777Z - info: Migration successful
+2025-08-01T13:12:16.790Z - debug: Creating samples is disabled
+2025-08-01T13:12:16.796Z - info: Initializing worker threads
+2025-08-01T13:12:16.797Z - debug: Extensions in workers: base, child-templates, components, data, handlebars, jsrender, localization, npm, pdf-utils, reports, text, version-control, assets, browser-client, chrome-pdf, docx, html-to-xlsx, pptx, scripts, static-pdf, studio, xlsx
+2025-08-01T13:12:19.368Z - info: 2 worker threads initialized in 2572ms
+2025-08-01T13:12:19.371Z - info: Starting temp files cleanup with 180000ms threshold
+2025-08-01T13:12:19.380Z - info: reporter initialized
+2025-08-01T13:12:19.410Z - info: Render request 1 queued for execution and waiting for available worker rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:19.479Z - info: Starting rendering request 1 rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:19.480Z - info: Rendering anonymous template { recipe: chrome-pdf, engine: none } rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:19.481Z - debug: Data item not defined for this template. rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:19.504Z - debug: Base url not specified, skipping its injection. rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:19.509Z - debug: Rendering engine none rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:23.848Z - debug: Executing recipe chrome-pdf rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:27.275Z - debug: Converting with chrome HeadlessChrome/105.0.5173.0 using chrome-pool strategy rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:29.086Z - debug: Page request: GET (document) file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/9530d4a1-e443-40bb-85ea-a2487ad69fc6-chrome-pdf.html rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:29.202Z - debug: Page request finished: GET (document) 200 file:///C:/Users/Hp/AppData/Local/Temp/autocleanup/9530d4a1-e443-40bb-85ea-a2487ad69fc6-chrome-pdf.html rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:29.294Z - debug: Running chrome with params {"timeout":55570,"margin":{},"printBackground":true} rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:30.666Z - debug: Skipping storing report. rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi
+2025-08-01T13:12:30.668Z - info: Rendering request 1 finished in 11267 ms rootId=6vxaph2g6e5krmi, id=6vxaph2g6e5krmi

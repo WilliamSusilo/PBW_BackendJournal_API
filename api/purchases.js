@@ -4,7 +4,7 @@ const Cors = require("cors");
 // Initialization for middleware CORS
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS", "PATCH", "PUT", "DELETE"],
-  origin: ["http://localhost:8080", "https://prabaraja-webapp.vercel.app"],
+  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 
@@ -2168,93 +2168,887 @@ module.exports = async (req, res) => {
       }
 
       //   Get Invoice Report Endpoint
-      case "getInvoiceReport": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoiceReport." });
-        }
+      // case "getInvoiceReport": {
+      //   if (method !== "GET") {
+      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoiceReport." });
+      //   }
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+      //   const authHeader = req.headers.authorization;
+      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
 
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
+      //   const token = authHeader.split(" ")[1];
+      //   const supabase = getSupabaseWithToken(token);
 
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser(token);
+      //   const {
+      //     data: { user },
+      //     error: userError,
+      //   } = await supabase.auth.getUser(token);
 
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
+      //   if (userError || !user) {
+      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
+      //   }
 
-        const invoiceId = req.query.id; // Make sure invoiceId is sent via query
-        if (!invoiceId) return res.status(400).json({ error: true, message: "Missing invoice id" });
+      //   const invoiceId = req.query.id;
+      //   if (!invoiceId) return res.status(400).json({ error: true, message: "Missing invoice id" });
 
-        const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
+      //   const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
 
-        if (fetchError || !invoice) {
-          return res.status(404).json({ error: true, message: "Invoice not found" });
-        }
+      //   if (fetchError || !invoice) {
+      //     return res.status(404).json({ error: true, message: "Invoice not found" });
+      //   }
 
-        // ========== FluentReports ==========
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { Report } = require("fluentreports");
-        const stream = require("stream");
-        const pdfStream = new stream.PassThrough();
+      //   // Format invoice number with proper prefix and padding
+      //   const formattedInvoiceNumber = `INV-${String(invoice.number).padStart(5, "0")}`;
 
-        const report = new Report(pdfStream);
+      //   // Format currency function
+      //   const formatCurrency = (amount) => {
+      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
+      //   };
 
-        // Header laporan
-        report.pageHeader((rpt) => {
-          rpt.print("INVOICE REPORT", { fontSize: 18, bold: true, align: "center" });
-          rpt.newline();
-          rpt.print(`Invoice Number: ${invoice.number}`, { fontSize: 12 });
-          rpt.print(`Date: ${invoice.date}`, { fontSize: 12 });
-          rpt.print(`Due Date: ${invoice.due_date}`, { fontSize: 12 });
-          rpt.print(`Status: ${invoice.status}`, { fontSize: 12 });
-          rpt.newline();
-          rpt.print(["Item", "Qty", "Price", "Total"], {
-            columns: [150, 100, 100, 100],
-            fontSize: 10,
-            bold: true,
-          });
-          rpt.newline();
-        });
+      //   // Format date function
+      //   const formatDate = (dateString) => {
+      //     const date = new Date(dateString);
+      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      //   };
 
-        // Sumber data
-        report.data(invoice.items);
+      //   const { Report } = require("fluentreports");
+      //   const stream = require("stream");
+      //   const pdfStream = new stream.PassThrough();
 
-        // Detail item invoice
-        report.detail((rpt, data) => {
-          rpt.print([data.name, data.qty, data.price, data.total_per_item], {
-            columns: [150, 100, 100, 100],
-            fontSize: 10,
-          });
-        });
+      //   // Create report with A4 page size
+      //   const report = new Report(pdfStream, {
+      //     paper: "A4",
+      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
+      //   });
 
-        report.finalSummary(() => {
-          report.newline();
-          report.print(`DPP: ${invoice.dpp}`, { fontSize: 12 });
-          report.print(`PPN: ${invoice.ppn}`, { fontSize: 12 });
-          report.print(`PPh: ${invoice.pph}`, { fontSize: 12 });
-          report.print(`Grand Total: ${invoice.grand_total}`, { fontSize: 14, bold: true });
-        });
+      //   // Header Section
+      //   report.pageHeader((rpt) => {
+      //     // Invoice Summary Section
+      //     rpt.print("Invoice Summary", { x: 40, y: 40, fontSize: 20, bold: true });
 
-        // Render
-        report.render((err) => {
-          if (err) {
-            return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-          }
-        });
+      //     // Status badge (top right)
+      //     if (invoice.status === "Completed" || invoice.status === "Paid") {
+      //       rpt.print("PAID", { x: 500, y: 40, fontSize: 12, color: "green" });
+      //     }
 
-        // PDF output
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `inline; filename=invoice_${invoice.number}.pdf`);
-        pdfStream.pipe(res);
+      //     // Invoice details grid
+      //     rpt.print("Invoice Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formattedInvoiceNumber, { x: 40, y: 95, fontSize: 12 });
 
-        break;
-      }
+      //     rpt.print("Invoice Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(invoice.date), { x: 250, y: 95, fontSize: 12 });
+
+      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(invoice.due_date), { x: 460, y: 95, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
+
+      //     // Vendor Information Section
+      //     rpt.print("Vendor Information", { x: 40, y: 140, fontSize: 20, bold: true });
+
+      //     rpt.print("Vendor Name", { x: 40, y: 170, fontSize: 10, color: "gray" });
+      //     rpt.print("Global Supplies Co.", { x: 40, y: 185, fontSize: 12 });
+
+      //     rpt.print("Vendor ID", { x: 40, y: 210, fontSize: 10, color: "gray" });
+      //     rpt.print("V-2779", { x: 40, y: 225, fontSize: 12 });
+
+      //     rpt.print("Contact Information", { x: 40, y: 250, fontSize: 10, color: "gray" });
+      //     rpt.print("accounts@globalsupplies.com", { x: 40, y: 265, fontSize: 12 });
+      //     rpt.print("+1 (555) 987-6543", { x: 40, y: 280, fontSize: 12 });
+
+      //     rpt.print("Address", { x: 40, y: 305, fontSize: 10, color: "gray" });
+      //     rpt.print("1234 Vendor Street", { x: 40, y: 320, fontSize: 12 });
+      //     rpt.print("Supplier City, SC 54321", { x: 40, y: 335, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
+
+      //     // Invoice Items Section
+      //     rpt.print("Invoice Items", { x: 40, y: 385, fontSize: 20, bold: true });
+
+      //     // Items table header
+      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
+
+      //     // Separator line below header
+      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
+      //   });
+
+      //   // Detail rows
+      //   let currentY = 445;
+      //   const pageHeightLimit = 780;
+      //   report.detail((rpt, data) => {
+      //     if (currentY > pageHeightLimit) {
+      //       rpt.newPage(); // Pindah ke halaman baru
+      //       currentY = 40; // Reset posisi Y di halaman baru (sesuai margin top)
+      //     }
+      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
+      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
+
+      //     currentY += 25;
+      //   });
+
+      //   // Set data source
+      //   report.data(invoice.items);
+
+      //   // Footer with totals
+      //   report.finalSummary((rpt) => {
+      //     // Totals section - start right after the last item
+      //     const startY = currentY + 55;
+
+      //     // Totals section
+      //     rpt.print("Subtotal", { x: 380, y: startY, fontSize: 12 });
+      //     rpt.print(formatCurrency(invoice.dpp), { x: 510, y: startY, fontSize: 12 });
+
+      //     rpt.print(`Tax (${invoice.ppn_percentage}%)`, { x: 380, y: startY + 25, fontSize: 12 });
+      //     rpt.print(formatCurrency(invoice.ppn), { x: 510, y: startY + 25, fontSize: 12 });
+
+      //     rpt.print("Total", { x: 380, y: startY + 50, fontSize: 12, bold: true });
+      //     rpt.print(formatCurrency(invoice.grand_total), { x: 510, y: startY + 50, fontSize: 12, bold: true });
+
+      //     rpt.print("Balance Due", { x: 380, y: startY + 75, fontSize: 12 });
+      //     rpt.print(formatCurrency(0), { x: 510, y: startY + 75, fontSize: 12, color: "green" });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
+
+      //     // Payment Information Section
+      //     rpt.print("Payment Information", { x: 40, y: startY + 120, fontSize: 20, bold: true });
+
+      //     rpt.print("Payment Terms", { x: 40, y: startY + 150, fontSize: 10, color: "gray" });
+      //     rpt.print("Net 30", { x: 40, y: startY + 165, fontSize: 12 });
+
+      //     rpt.print("Payment Method", { x: 40, y: startY + 190, fontSize: 10, color: "gray" });
+      //     rpt.print("Bank Transfer", { x: 40, y: startY + 205, fontSize: 12 });
+
+      //     rpt.print("Bank Account", { x: 40, y: startY + 230, fontSize: 10, color: "gray" });
+      //     rpt.print("Global Supplies Bank Account", { x: 40, y: startY + 245, fontSize: 12 });
+      //     rpt.print("Account #: XXXX-XXXX-1234", { x: 40, y: startY + 260, fontSize: 12 });
+
+      //     rpt.print("Payment Status", { x: 40, y: startY + 285, fontSize: 10, color: "gray" });
+      //     rpt.print("Paid", { x: 40, y: startY + 300, fontSize: 12, color: "green" });
+      //     rpt.print("Paid on Jun 5, 2025", { x: 40, y: startY + 315, fontSize: 12 });
+      //   });
+
+      //   // Render the report
+      //   report.render((err) => {
+      //     if (err) {
+      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+      //     }
+      //   });
+
+      //   // Set response headers and pipe the PDF stream
+      //   res.setHeader("Content-Type", "application/pdf");
+      //   res.setHeader("Content-Disposition", `inline; filename=${formattedInvoiceNumber}.pdf`);
+      //   pdfStream.pipe(res);
+
+      //   break;
+      // }
+
+      // //   Get Shipment Report Endpoint
+      // case "getShipmentReport": {
+      //   if (method !== "GET") {
+      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getShipmentReport." });
+      //   }
+
+      //   const authHeader = req.headers.authorization;
+      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+      //   const token = authHeader.split(" ")[1];
+      //   const supabase = getSupabaseWithToken(token);
+
+      //   const {
+      //     data: { user },
+      //     error: userError,
+      //   } = await supabase.auth.getUser(token);
+
+      //   if (userError || !user) {
+      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
+      //   }
+
+      //   const shipmentId = req.query.id;
+      //   if (!shipmentId) return res.status(400).json({ error: true, message: "Missing shipment id" });
+
+      //   const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", shipmentId).single();
+
+      //   if (fetchError || !shipment) {
+      //     return res.status(404).json({ error: true, message: "Shipment not found" });
+      //   }
+
+      //   // Format shipment number with proper prefix and padding
+      //   const formattedShipmentNumber = `SH-${String(shipment.number).padStart(5, "0")}`;
+
+      //   // Format currency function
+      //   const formatCurrency = (amount) => {
+      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
+      //   };
+
+      //   // Format date function
+      //   const formatDate = (dateString) => {
+      //     const date = new Date(dateString);
+      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      //   };
+
+      //   const { Report } = require("fluentreports");
+      //   const stream = require("stream");
+      //   const pdfStream = new stream.PassThrough();
+
+      //   // Create report with A4 page size
+      //   const report = new Report(pdfStream, {
+      //     paper: "A4",
+      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
+      //   });
+
+      //   // Header Section
+      //   report.pageHeader((rpt) => {
+      //     // Shipment Summary Section
+      //     rpt.print("Shipment Summary", { x: 40, y: 40, fontSize: 20, bold: true });
+
+      //     // Status badge (top right)
+      //     if (shipment.status === "Completed" || shipment.status === "Delivered") {
+      //       rpt.print("DELIVERED", { x: 500, y: 40, fontSize: 12, color: "green" });
+      //     }
+
+      //     // Shipment details grid
+      //     rpt.print("Shipment Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formattedShipmentNumber, { x: 40, y: 95, fontSize: 12 });
+
+      //     rpt.print("Shipment Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(shipment.shipping_date), { x: 250, y: 95, fontSize: 12 });
+
+      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(shipment.due_date), { x: 460, y: 95, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
+
+      //     // Carrier Information Section
+      //     rpt.print("Carrier Information", { x: 40, y: 140, fontSize: 20, bold: true });
+
+      //     rpt.print("Carrier Name", { x: 40, y: 170, fontSize: 10, color: "gray" });
+      //     rpt.print(shipment.carrier || "Not Specified", { x: 40, y: 185, fontSize: 12 });
+
+      //     rpt.print("Tracking Number", { x: 40, y: 210, fontSize: 10, color: "gray" });
+      //     rpt.print(shipment.tracking_number || "Not Available", { x: 40, y: 225, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
+
+      //     // Shipment Items Section
+      //     rpt.print("Shipment Items", { x: 40, y: 385, fontSize: 20, bold: true });
+
+      //     // Items table header
+      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
+
+      //     // Separator line below header
+      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
+      //   });
+
+      //   // Detail rows
+      //   let currentY = 435;
+      //   report.detail((rpt, data) => {
+      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
+      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
+      //     currentY += 25;
+      //   });
+
+      //   // Set data source
+      //   report.data(shipment.items);
+
+      //   // Footer with totals
+      //   report.finalSummary((rpt) => {
+      //     // Totals section - start right after the last item
+      //     const startY = currentY + 55;
+
+      //     // Totals section
+      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
+      //     rpt.print(shipment.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
+
+      //     rpt.print("Total Value", { x: 380, y: startY + 25, fontSize: 12, bold: true });
+      //     rpt.print(formatCurrency(shipment.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
+
+      //     // Delivery Information Section
+      //     rpt.print("Delivery Information", { x: 40, y: startY + 70, fontSize: 20, bold: true });
+
+      //     rpt.print("Status", { x: 40, y: startY + 100, fontSize: 10, color: "gray" });
+      //     rpt.print(shipment.status, { x: 40, y: startY + 115, fontSize: 12 });
+
+      //     if (shipment.status === "Delivered") {
+      //       rpt.print("Delivery Date", { x: 40, y: startY + 140, fontSize: 10, color: "gray" });
+      //       rpt.print(formatDate(shipment.delivery_date), { x: 40, y: startY + 155, fontSize: 12 });
+      //     }
+      //   });
+
+      //   // Render the report
+      //   report.render((err) => {
+      //     if (err) {
+      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+      //     }
+      //   });
+
+      //   // Set response headers and pipe the PDF stream
+      //   res.setHeader("Content-Type", "application/pdf");
+      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedShipmentNumber}.pdf`);
+      //   pdfStream.pipe(res);
+
+      //   break;
+      // }
+
+      // //   Get Order Report Endpoint
+      // case "getOrderReport": {
+      //   if (method !== "GET") {
+      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOrderReport." });
+      //   }
+
+      //   const authHeader = req.headers.authorization;
+      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+      //   const token = authHeader.split(" ")[1];
+      //   const supabase = getSupabaseWithToken(token);
+
+      //   const {
+      //     data: { user },
+      //     error: userError,
+      //   } = await supabase.auth.getUser(token);
+
+      //   if (userError || !user) {
+      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
+      //   }
+
+      //   const orderId = req.query.id;
+      //   if (!orderId) return res.status(400).json({ error: true, message: "Missing order id" });
+
+      //   const { data: order, error: fetchError } = await supabase.from("orders").select("*").eq("id", orderId).single();
+
+      //   if (fetchError || !order) {
+      //     return res.status(404).json({ error: true, message: "Order not found" });
+      //   }
+
+      //   // Format order number with proper prefix and padding
+      //   const formattedOrderNumber = `ORD-${String(order.number).padStart(5, "0")}`;
+
+      //   // Format currency function
+      //   const formatCurrency = (amount) => {
+      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
+      //   };
+
+      //   // Format date function
+      //   const formatDate = (dateString) => {
+      //     const date = new Date(dateString);
+      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      //   };
+
+      //   const { Report } = require("fluentreports");
+      //   const stream = require("stream");
+      //   const pdfStream = new stream.PassThrough();
+
+      //   // Create report with A4 page size
+      //   const report = new Report(pdfStream, {
+      //     paper: "A4",
+      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
+      //   });
+
+      //   // Header Section
+      //   report.pageHeader((rpt) => {
+      //     // Order Summary Section
+      //     rpt.print("Purchase Order", { x: 40, y: 40, fontSize: 20, bold: true });
+
+      //     // Status badge (top right)
+      //     if (order.status === "Completed" || order.status === "Paid") {
+      //       rpt.print("COMPLETED", { x: 500, y: 40, fontSize: 12, color: "green" });
+      //     } else if (order.status === "Processing") {
+      //       rpt.print("PROCESSING", { x: 500, y: 40, fontSize: 12, color: "blue" });
+      //     } else if (order.status === "Pending") {
+      //       rpt.print("PENDING", { x: 500, y: 40, fontSize: 12, color: "orange" });
+      //     }
+
+      //     // Order details grid
+      //     rpt.print("Order Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formattedOrderNumber, { x: 40, y: 95, fontSize: 12 });
+
+      //     rpt.print("Order Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(order.date), { x: 250, y: 95, fontSize: 12 });
+
+      //     rpt.print("Expected Delivery", { x: 460, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(order.expected_delivery), { x: 460, y: 95, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
+
+      //     // Order Information Section
+      //     rpt.print("Order Details", { x: 40, y: 140, fontSize: 20, bold: true });
+
+      //     // Supplier Information
+      //     rpt.print("Supplier", { x: 40, y: 170, fontSize: 10, color: "gray" });
+      //     rpt.print(order.supplier_name, { x: 40, y: 185, fontSize: 12 });
+
+      //     // Payment Terms
+      //     rpt.print("Payment Terms", { x: 40, y: 210, fontSize: 10, color: "gray" });
+      //     rpt.print(order.payment_terms, { x: 40, y: 225, fontSize: 12 });
+
+      //     // Delivery Terms
+      //     rpt.print("Delivery Terms", { x: 40, y: 250, fontSize: 10, color: "gray" });
+      //     rpt.print(order.delivery_terms, { x: 40, y: 265, fontSize: 12 });
+
+      //     // Purchase Type
+      //     if (order.purchase_type) {
+      //       rpt.print("Purchase Type", { x: 40, y: 290, fontSize: 10, color: "gray" });
+      //       rpt.print(order.purchase_type, { x: 40, y: 305, fontSize: 12 });
+      //     }
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
+
+      //     // Order Items Section
+      //     rpt.print("Ordered Items", { x: 40, y: 385, fontSize: 20, bold: true });
+
+      //     // Items table header
+      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
+
+      //     // Separator line below header
+      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
+      //   });
+
+      //   // Detail rows
+      //   let currentY = 435;
+      //   report.detail((rpt, data) => {
+      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
+      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
+      //     currentY += 25;
+      //   });
+
+      //   // Set data source
+      //   report.data(order.items);
+
+      //   // Footer with totals
+      //   report.finalSummary((rpt) => {
+      //     // Totals section - start right after the last item
+      //     const startY = currentY + 55;
+
+      //     // Subtotal
+      //     rpt.print("Subtotal", { x: 380, y: startY, fontSize: 12 });
+      //     rpt.print(formatCurrency(order.subtotal), { x: 510, y: startY, fontSize: 12 });
+
+      //     // Tax
+      //     if (order.tax) {
+      //       rpt.print("Tax", { x: 380, y: startY + 25, fontSize: 12 });
+      //       rpt.print(formatCurrency(order.tax), { x: 510, y: startY + 25, fontSize: 12 });
+      //     }
+
+      //     // Shipping
+      //     if (order.shipping_cost) {
+      //       rpt.print("Shipping", { x: 380, y: startY + 50, fontSize: 12 });
+      //       rpt.print(formatCurrency(order.shipping_cost), { x: 510, y: startY + 50, fontSize: 12 });
+      //     }
+
+      //     // Grand Total
+      //     const grandTotalY = startY + (order.shipping_cost ? 75 : 50);
+      //     rpt.print("Grand Total", { x: 380, y: grandTotalY, fontSize: 12, bold: true });
+      //     rpt.print(formatCurrency(order.grand_total), { x: 510, y: grandTotalY, fontSize: 12, bold: true });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: grandTotalY + 25, y2: grandTotalY + 25 });
+
+      //     // Terms and Notes Section
+      //     if (order.terms_and_conditions) {
+      //       rpt.print("Terms and Conditions", { x: 40, y: grandTotalY + 45, fontSize: 20, bold: true });
+      //       rpt.print(order.terms_and_conditions, { x: 40, y: grandTotalY + 70, fontSize: 10 });
+      //     }
+
+      //     // Approval Section
+      //     rpt.print("Approval", { x: 40, y: grandTotalY + 120, fontSize: 20, bold: true });
+
+      //     // Prepared by
+      //     rpt.line({ x1: 40, x2: 200, y1: grandTotalY + 175, y2: grandTotalY + 175 });
+      //     rpt.print("Prepared by", { x: 40, y: grandTotalY + 190, fontSize: 10 });
+
+      //     // Approved by
+      //     rpt.line({ x1: 250, x2: 410, y1: grandTotalY + 175, y2: grandTotalY + 175 });
+      //     rpt.print("Approved by", { x: 250, y: grandTotalY + 190, fontSize: 10 });
+
+      //     // Date
+      //     rpt.line({ x1: 460, x2: 555, y1: grandTotalY + 175, y2: grandTotalY + 175 });
+      //     rpt.print("Date", { x: 460, y: grandTotalY + 190, fontSize: 10 });
+      //   });
+
+      //   // Render the report
+      //   report.render((err) => {
+      //     if (err) {
+      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+      //     }
+      //   });
+
+      //   // Set response headers and pipe the PDF stream
+      //   res.setHeader("Content-Type", "application/pdf");
+      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedOrderNumber}.pdf`);
+      //   pdfStream.pipe(res);
+
+      //   break;
+      // }
+
+      // // Get Offer Report Endpoint
+      // case "getOfferReport": {
+      //   if (method !== "GET") {
+      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOfferReport." });
+      //   }
+
+      //   const authHeader = req.headers.authorization;
+      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+      //   const token = authHeader.split(" ")[1];
+      //   const supabase = getSupabaseWithToken(token);
+
+      //   const {
+      //     data: { user },
+      //     error: userError,
+      //   } = await supabase.auth.getUser(token);
+
+      //   if (userError || !user) {
+      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
+      //   }
+
+      //   const offerId = req.query.id;
+      //   if (!offerId) return res.status(400).json({ error: true, message: "Missing offer id" });
+
+      //   const { data: offer, error: fetchError } = await supabase.from("offers").select("*").eq("id", offerId).single();
+
+      //   if (fetchError || !offer) {
+      //     return res.status(404).json({ error: true, message: "Offer not found" });
+      //   }
+
+      //   // Format offer number with proper prefix and padding
+      //   const formattedOfferNumber = `OFR-${String(offer.number).padStart(5, "0")}`;
+
+      //   // Format currency function
+      //   const formatCurrency = (amount) => {
+      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
+      //   };
+
+      //   // Format date function
+      //   const formatDate = (dateString) => {
+      //     const date = new Date(dateString);
+      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      //   };
+
+      //   const { Report } = require("fluentreports");
+      //   const stream = require("stream");
+      //   const pdfStream = new stream.PassThrough();
+
+      //   // Create report with A4 page size
+      //   const report = new Report(pdfStream, {
+      //     paper: "A4",
+      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
+      //   });
+
+      //   // Header Section
+      //   report.pageHeader((rpt) => {
+      //     // Offer Summary Section
+      //     rpt.print("Price Quotation", { x: 40, y: 40, fontSize: 20, bold: true });
+
+      //     // Status badge (top right)
+      //     if (offer.status === "Accepted") {
+      //       rpt.print("ACCEPTED", { x: 500, y: 40, fontSize: 12, color: "green" });
+      //     }
+
+      //     // Offer details grid
+      //     rpt.print("Quotation Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formattedOfferNumber, { x: 40, y: 95, fontSize: 12 });
+
+      //     rpt.print("Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(offer.date), { x: 250, y: 95, fontSize: 12 });
+
+      //     rpt.print("Valid Until", { x: 460, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(offer.expiry_date), { x: 460, y: 95, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
+
+      //     // Offer Information Section
+      //     rpt.print("Quotation Details", { x: 40, y: 140, fontSize: 20, bold: true });
+
+      //     rpt.print("Status", { x: 40, y: 170, fontSize: 10, color: "gray" });
+      //     rpt.print(offer.status, { x: 40, y: 185, fontSize: 12 });
+
+      //     if (offer.discount_terms) {
+      //       rpt.print("Discount Terms", { x: 40, y: 210, fontSize: 10, color: "gray" });
+      //       rpt.print(offer.discount_terms, { x: 40, y: 225, fontSize: 12 });
+      //     }
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
+
+      //     // Offer Items Section
+      //     rpt.print("Items & Pricing", { x: 40, y: 385, fontSize: 20, bold: true });
+
+      //     // Items table header
+      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
+
+      //     // Separator line below header
+      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
+      //   });
+
+      //   // Detail rows
+      //   let currentY = 435;
+      //   report.detail((rpt, data) => {
+      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
+      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
+      //     currentY += 25;
+      //   });
+
+      //   // Set data source
+      //   report.data(offer.items);
+
+      //   // Footer with totals
+      //   report.finalSummary((rpt) => {
+      //     // Totals section - start right after the last item
+      //     const startY = currentY + 55;
+
+      //     // Totals section
+      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
+      //     rpt.print(offer.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
+
+      //     rpt.print("Grand Total", { x: 380, y: startY + 25, fontSize: 12, bold: true });
+      //     rpt.print(formatCurrency(offer.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
+
+      //     // Terms and Conditions Section
+      //     rpt.print("Terms and Conditions", { x: 40, y: startY + 70, fontSize: 20, bold: true });
+
+      //     const terms = [
+      //       "1. This quotation is valid until the expiry date mentioned above.",
+      //       "2. Prices are subject to change without prior notice.",
+      //       "3. Payment terms as specified in the quotation.",
+      //       "4. Delivery timeline will be confirmed upon order confirmation.",
+      //     ];
+
+      //     terms.forEach((term, index) => {
+      //       rpt.print(term, { x: 40, y: startY + 100 + index * 20, fontSize: 10 });
+      //     });
+
+      //     if (offer.tags && offer.tags.length > 0) {
+      //       rpt.print("Tags", { x: 40, y: startY + 190, fontSize: 10, color: "gray" });
+      //       rpt.print(offer.tags.join(", "), { x: 40, y: startY + 205, fontSize: 12 });
+      //     }
+      //   });
+
+      //   // Render the report
+      //   report.render((err) => {
+      //     if (err) {
+      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+      //     }
+      //   });
+
+      //   // Set response headers and pipe the PDF stream
+      //   res.setHeader("Content-Type", "application/pdf");
+      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedOfferNumber}.pdf`);
+      //   pdfStream.pipe(res);
+
+      //   break;
+      // }
+
+      // // Get Request Report Endpoint
+      // case "getRequestReport": {
+      //   if (method !== "GET") {
+      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getRequestReport." });
+      //   }
+
+      //   const authHeader = req.headers.authorization;
+      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+      //   const token = authHeader.split(" ")[1];
+      //   const supabase = getSupabaseWithToken(token);
+
+      //   const {
+      //     data: { user },
+      //     error: userError,
+      //   } = await supabase.auth.getUser(token);
+
+      //   if (userError || !user) {
+      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
+      //   }
+
+      //   const requestId = req.query.id;
+      //   if (!requestId) return res.status(400).json({ error: true, message: "Missing request id" });
+
+      //   const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", requestId).single();
+
+      //   if (fetchError || !request) {
+      //     return res.status(404).json({ error: true, message: "Request not found" });
+      //   }
+
+      //   // Format request number with proper prefix and padding
+      //   const formattedRequestNumber = `REQ-${String(request.number).padStart(5, "0")}`;
+
+      //   // Format currency function
+      //   const formatCurrency = (amount) => {
+      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
+      //   };
+
+      //   // Format date function
+      //   const formatDate = (dateString) => {
+      //     const date = new Date(dateString);
+      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      //   };
+
+      //   const { Report } = require("fluentreports");
+      //   const stream = require("stream");
+      //   const pdfStream = new stream.PassThrough();
+
+      //   // Create report with A4 page size
+      //   const report = new Report(pdfStream, {
+      //     paper: "A4",
+      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
+      //   });
+
+      //   // Header Section
+      //   report.pageHeader((rpt) => {
+      //     // Request Summary Section
+      //     rpt.print("Purchase Request", { x: 40, y: 40, fontSize: 20, bold: true });
+
+      //     // Status badge (top right)
+      //     if (request.status === "Completed") {
+      //       rpt.print("COMPLETED", { x: 500, y: 40, fontSize: 12, color: "green" });
+      //     } else if (request.status === "Pending") {
+      //       rpt.print("PENDING", { x: 500, y: 40, fontSize: 12, color: "orange" });
+      //     }
+
+      //     // Request details grid
+      //     rpt.print("Request Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formattedRequestNumber, { x: 40, y: 95, fontSize: 12 });
+
+      //     rpt.print("Request Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(request.date), { x: 250, y: 95, fontSize: 12 });
+
+      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
+      //     rpt.print(formatDate(request.due_date), { x: 460, y: 95, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
+
+      //     // Request Information Section
+      //     rpt.print("Request Details", { x: 40, y: 140, fontSize: 20, bold: true });
+
+      //     rpt.print("Requested By", { x: 40, y: 170, fontSize: 10, color: "gray" });
+      //     rpt.print(request.requested_by, { x: 40, y: 185, fontSize: 12 });
+
+      //     rpt.print("Urgency Level", { x: 40, y: 210, fontSize: 10, color: "gray" });
+      //     rpt.print(request.urgency, { x: 40, y: 225, fontSize: 12 });
+
+      //     rpt.print("Status", { x: 40, y: 250, fontSize: 10, color: "gray" });
+      //     rpt.print(request.status, { x: 40, y: 265, fontSize: 12 });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
+
+      //     // Request Items Section
+      //     rpt.print("Requested Items", { x: 40, y: 385, fontSize: 20, bold: true });
+
+      //     // Items table header
+      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Est. Price", { x: 380, y: 415, fontSize: 12, bold: true });
+      //     rpt.print("Est. Total", { x: 510, y: 415, fontSize: 12, bold: true });
+
+      //     // Separator line below header
+      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
+      //   });
+
+      //   // Detail rows
+      //   let currentY = 435;
+      //   report.detail((rpt, data) => {
+      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
+      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
+      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
+      //     currentY += 25;
+      //   });
+
+      //   // Set data source
+      //   report.data(request.items);
+
+      //   // Footer with totals
+      //   report.finalSummary((rpt) => {
+      //     // Totals section - start right after the last item
+      //     const startY = currentY + 55;
+
+      //     // Totals section
+      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
+      //     rpt.print(request.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
+
+      //     rpt.print("Estimated Total", { x: 380, y: startY + 25, fontSize: 12, bold: true });
+      //     rpt.print(formatCurrency(request.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
+
+      //     // Separator line
+      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
+
+      //     // Additional Information Section
+      //     rpt.print("Additional Information", { x: 40, y: startY + 70, fontSize: 20, bold: true });
+
+      //     if (request.tags && request.tags.length > 0) {
+      //       rpt.print("Tags", { x: 40, y: startY + 100, fontSize: 10, color: "gray" });
+      //       rpt.print(request.tags.join(", "), { x: 40, y: startY + 115, fontSize: 12 });
+      //     }
+
+      //     // Approval Section
+      //     rpt.print("Approval Status", { x: 40, y: startY + 145, fontSize: 20, bold: true });
+
+      //     rpt.print("Current Status", { x: 40, y: startY + 175, fontSize: 10, color: "gray" });
+      //     rpt.print(request.status, { x: 40, y: startY + 190, fontSize: 12 });
+
+      //     // Add signature lines if needed
+      //     if (request.status === "Pending") {
+      //       rpt.line({ x1: 40, x2: 200, y1: startY + 250, y2: startY + 250 });
+      //       rpt.print("Requester Signature", { x: 40, y: startY + 265, fontSize: 10 });
+
+      //       rpt.line({ x1: 250, x2: 410, y1: startY + 250, y2: startY + 250 });
+      //       rpt.print("Approver Signature", { x: 250, y: startY + 265, fontSize: 10 });
+      //     }
+      //   });
+
+      //   // Render the report
+      //   report.render((err) => {
+      //     if (err) {
+      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
+      //     }
+      //   });
+
+      //   // Set response headers and pipe the PDF stream
+      //   res.setHeader("Content-Type", "application/pdf");
+      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedRequestNumber}.pdf`);
+      //   pdfStream.pipe(res);
+
+      //   break;
+      // }
 
       // Non-existent Endpoint
       default:
