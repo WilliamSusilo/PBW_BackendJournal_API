@@ -1,3 +1,13 @@
+const jsreport = require("jsreport")({
+  tempDirectory: require("os").tmpdir(),
+  useSandbox: false,
+  extensions: {
+    express: { enabled: false },
+    authentication: { enabled: false },
+    authorization: { enabled: false },
+  },
+});
+
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
 const Cors = require("cors");
 
@@ -971,6 +981,218 @@ module.exports = async (req, res) => {
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Export Transaction History PDF Endpoint
+      case "exportTransactionHistoryPdf": {
+        if (method !== "GET") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use GET.",
+          });
+        }
+
+        // Check for Authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({
+            error: true,
+            message: "Authorization header is missing.",
+          });
+        }
+
+        // Extract token and initialize Supabase client
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        // Validate user session from token
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({
+            error: true,
+            message: "Invalid or expired token.",
+          });
+        }
+
+        // Get account_code from query params
+        const accountCode = req.query.number;
+        if (!accountCode) {
+          return res.status(400).json({
+            error: true,
+            message: "Missing account_code",
+          });
+        }
+
+        // Step 1: Find cashbank row based on account_code
+        const { data: cashbankRow, error: cashbankError } = await supabase.from("cashbank").select("id, number, account_name").eq("number", accountCode).single();
+
+        if (cashbankError || !cashbankRow) {
+          return res.status(404).json({
+            error: true,
+            message: "Cashbank with given account_code not found",
+          });
+        }
+
+        const cashbankId = cashbankRow.id;
+        const bankName = cashbankRow.account_name;
+
+        // Step 2: Find bank_receive_transactions where receiving_account = cashbankId
+        const { data: transactions, error: transactionError } = await supabase
+          .from("bank_receive_transactions")
+          .select("date_received, payer_name, reference, amount")
+          .eq("receiving_account", cashbankId)
+          .order("date_received", { ascending: true });
+
+        console.error(transactionError);
+
+        if (transactionError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to fetch bank receive transactions",
+          });
+        }
+
+        // Helper to format currency as IDR
+        const formatCurrency = (amount) => `Rp ${Number(amount || 0).toLocaleString("id-ID")}`;
+
+        // Helper to format date as dd MMM yyyy
+        const formatDate = (date) =>
+          new Date(date).toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          });
+
+        // Calculate total processed
+        const totalProcessed = transactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+        // Build transaction rows for HTML table
+        const transactionRows = transactions
+          .map((t) => {
+            return `
+      <tr>
+        <td>${formatDate(t.date_received) || "-"}</td>
+        <td>${t.payer_name || "-"}</td>
+        <td>${t.reference || "-"}</td>
+        <td style="text-align:right;">${formatCurrency(t.amount)}</td>
+      </tr>`;
+          })
+          .join("");
+
+        // Determine transaction date range
+        const startDate = transactions.length > 0 ? formatDate(transactions[0].date_received) : "-";
+        const endDate = transactions.length > 0 ? formatDate(transactions[transactions.length - 1].date_received) : "-";
+
+        // Build the HTML for PDF
+        const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          padding: 40px;
+        }
+        h1 {
+          text-align: center;
+          margin-bottom: 30px;
+        }
+        .info {
+          margin-bottom: 20px;
+        }
+        .info p {
+          margin: 4px 0;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+        }
+        th, td {
+          border: 1px solid #999;
+          padding: 8px;
+        }
+        th {
+          background-color: #f0f0f0;
+        }
+        .total {
+          font-weight: bold;
+          text-align: right;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 30px;
+        }
+        .header h1 {
+          margin: 0;
+          font-size: 20px;
+        }
+        .header img {
+          height: 40px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>${bankName} - Transaction History Report</h1>
+        <img src="https://placehold.co/100x40/png?text=Logo" alt="Bank Logo" />
+      </div>
+      <div class="info">
+        <p><strong>Transaction Dates:</strong> ${startDate} — ${endDate}</p>
+        <p><strong>Report Generated on:</strong> ${formatDate(new Date())}</p>
+        <p><strong>Total Processed:</strong> ${formatCurrency(totalProcessed)}</p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Description</th>
+            <th>Reference</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${transactionRows || `<tr><td colspan="4" style="text-align:center;">No transactions available</td></tr>`}
+          <tr>
+            <td colspan="3" class="total">Total</td>
+            <td class="total">${formatCurrency(totalProcessed)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </body>
+    </html>
+  `;
+
+        // Step 3: Generate the PDF
+        try {
+          const jsreportInstance = await jsreport.init();
+          const pdfResponse = await jsreportInstance.render({
+            template: {
+              content: html,
+              engine: "none",
+              recipe: "chrome-pdf",
+            },
+          });
+
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `inline; filename="transaction_history_${accountCode}.pdf"`);
+          pdfResponse.stream.pipe(res);
+        } catch (err) {
+          console.error("PDF generation error:", err);
+          res.status(500).json({
+            error: true,
+            message: "Failed to generate PDF.",
+          });
+        }
+
+        break;
       }
 
       default:
