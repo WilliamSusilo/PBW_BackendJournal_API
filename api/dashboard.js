@@ -1207,12 +1207,12 @@ module.exports = async (req, res) => {
             }
 
             // Extra: only allow level 3 (Sub Child Account)
-            if (accData.level !== 3) {
-              return res.status(400).json({
-                error: true,
-                message: `Account at journal_details[${i}] is not a Sub Child Account (level 3). Only detail-level accounts can be used.`,
-              });
-            }
+            // if (accData.level !== 3) {
+            //   return res.status(400).json({
+            //     error: true,
+            //     message: `Account at journal_details[${i}] is not a Sub Child Account (level 3). Only detail-level accounts can be used.`,
+            //   });
+            // }
           }
 
           // Insert
