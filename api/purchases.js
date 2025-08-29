@@ -1,5 +1,6 @@
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
 const Cors = require("cors");
+const formidable = require("formidable");
 
 // Initialization for middleware CORS
 const cors = Cors({
@@ -7,6 +8,30 @@ const cors = Cors({
   origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
+
+const ensureAuth = async (req, res) => {
+  const method = req.method;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).json({ error: true, message: "No authorization header provided" });
+    return null;
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    res.status(401).json({ error: true, message: "No authorization token provided" });
+    return null;
+  }
+  const supabase = getSupabaseWithToken(token);
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    res.status(401).json({ error: true, message: "Invalid or expired token" });
+    return null;
+  }
+  return { supabase, user, method };
+};
 
 // Helper for run middleware with async
 function runMiddleware(req, res, fn) {
@@ -27,12 +52,3083 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  const { method, query } = req;
-  const body = req.body;
-  const action = method === "GET" ? query.action : body.action;
+  const { method, headers, query } = req;
+  let body = {};
+  let files = {};
+  let action = method === "GET" ? query.action : null;
+
+  if (method !== "GET" && headers["content-type"]?.includes("multipart/form-data")) {
+    console.log("=== FORMIDABLE PARSING DEBUG ===");
+    console.log("Content-Type:", headers["content-type"]);
+    console.log("Method:", method);
+
+    const form = new formidable.IncomingForm({
+      keepExtensions: true,
+      maxFileSize: 10 * 1024 * 1024, // 10MB
+      multiples: true,
+    });
+
+    try {
+      const { fields, files: parsedFiles } = await new Promise((resolve, reject) => {
+        form.parse(req, (err, fields, files) => {
+          console.log("Formidable parse callback:");
+          console.log("Error:", err);
+          console.log("Fields:", fields);
+          console.log("Files:", files);
+          if (err) reject(err);
+          else resolve({ fields, files });
+        });
+      });
+
+      console.log("Parsed fields:", fields);
+      console.log("Parsed files:", parsedFiles);
+
+      // Normalize fields so they are not arrays
+      for (const key in fields) {
+        body[key] = Array.isArray(fields[key]) ? fields[key][0] : fields[key];
+      }
+
+      files = parsedFiles;
+      action = body.action;
+
+      // Save to req so it can be used in handler
+      req.body = body;
+      req.files = files;
+      console.log("Final req.body:", req.body);
+      console.log("Final req.files:", req.files);
+      console.log("===============================");
+    } catch (err) {
+      console.error("Formidable parsing error:", err);
+      return res.status(400).json({ error: true, message: "Error parsing form-data: " + err.message });
+    }
+  } else if (method !== "GET") {
+    body = req.body;
+    action = body.action;
+  }
 
   try {
     switch (action) {
+      // =============================================================
+      // >>>>>>>>>>>>>>>>>  NEW ENDPOINT FOR INPUT FILE  <<<<<<<<<<<<<
+      // =============================================================
+
+      // Add Invoice Endpoint
+      case "addNewInvoice": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addInvoice." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          let { type, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, grand_total, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesInvoices/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!type || !date || !approver || !due_date || !status || !items || items.length === 0 || !ppn_percentage || !pph_type || !pph_percentage || !grand_total) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          const requestDate = new Date(date);
+          const month = requestDate.getMonth() + 1; // 0-based
+          const year = requestDate.getFullYear();
+
+          // Generate prefix for this month: YYYYMM
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          // Fetch latest invoice number
+          const { data: latestInvoice, error: fetchError } = await supabase
+            .from("invoices")
+            .select("number")
+            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch latest invoice number: " + fetchError.message });
+          }
+
+          // Determine the next counter based on latest request
+          let counter = 1;
+          if (latestInvoice && latestInvoice.length > 0) {
+            const lastNumber = latestInvoice[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+
+          // Combine prefix + counter
+          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Update items with total_per_item
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const price = Number(item.price) || 0;
+            const total_per_item = qty * price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          // Calculate PPN and PPh
+          const ppn = (dpp * (ppn_percentage || 0)) / 100;
+          const pph = (dpp * (pph_percentage || 0)) / 100;
+
+          // Final grand total
+          // const grand_total = dpp + ppn - pph;
+
+          const { error } = await supabase.from("invoices").insert([
+            {
+              user_id: user.id,
+              type,
+              date,
+              number: nextNumber,
+              approver,
+              due_date,
+              status,
+              tags,
+              items: updatedItems,
+              tax_calculation_method,
+              ppn_percentage,
+              pph_type,
+              pph_percentage,
+              dpp,
+              ppn,
+              pph,
+              grand_total,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create invoice: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Invoice created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Add Offer Endpoint
+      case "addNewOffer": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addOffer." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          let { type, date, discount_terms, expiry_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesOffers/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!type || !date || !expiry_date || !due_date || !status || !items || items.length === 0 || !grand_total) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          const requestDate = new Date(date);
+          const month = requestDate.getMonth() + 1; // 0-based
+          const year = requestDate.getFullYear();
+
+          // Generate prefix for this month: YYYYMM
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          // Fetch latest offer number
+          const { data: latestOffer, error: fetchError } = await supabase
+            .from("offers")
+            .select("number")
+            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch latest offer number: " + fetchError.message });
+          }
+
+          // Determine the next counter based on latest request
+          let counter = 1;
+          if (latestOffer && latestOffer.length > 0) {
+            const lastNumber = latestOffer[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+
+          // Combine prefix + counter
+          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          // Final grand total
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          const { error } = await supabase.from("offers").insert([
+            {
+              user_id: user.id,
+              type,
+              date,
+              number: nextNumber,
+              discount_terms,
+              expiry_date,
+              due_date,
+              status,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              items: updatedItems,
+              grand_total,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create offer: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Offer created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Add Order Endpoint
+      case "addNewOrder": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addOrder." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          let { type, date, orders_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesOrders/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!type || !date || !orders_date || !due_date || !status || !items || items.length === 0 || !grand_total) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          const requestDate = new Date(date);
+          const month = requestDate.getMonth() + 1; // 0-based
+          const year = requestDate.getFullYear();
+
+          // Generate prefix for this month: YYYYMM
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          // Fetch latest order number
+          const { data: latestOrder, error: fetchError } = await supabase
+            .from("orders")
+            .select("number")
+            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch latest order number: " + fetchError.message });
+          }
+
+          // Determine the next counter based on latest request
+          let counter = 1;
+          if (latestOrder && latestOrder.length > 0) {
+            const lastNumber = latestOrder[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+          // Combine prefix + counter
+          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          // Final grand total
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          const { error } = await supabase.from("orders").insert([
+            {
+              user_id: user.id,
+              type,
+              date,
+              number: nextNumber,
+              orders_date,
+              due_date,
+              status,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              items: updatedItems,
+              grand_total,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create order: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Order created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Add Request Endpoint
+      case "addNewRequest": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          let { type, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesRequests/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!type || !date || !requested_by || !urgency || !due_date || !status || !items || items.length === 0 || !grand_total) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          const requestDate = new Date(date);
+          const month = requestDate.getMonth() + 1; // 0-based
+          const year = requestDate.getFullYear();
+
+          // Generate prefix for this month: YYYYMM
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          // Fetch latest request number for the same prefix
+          const { data: latestRequests, error: fetchError } = await supabase
+            .from("requests")
+            .select("number")
+            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch latest request number: " + fetchError.message });
+          }
+
+          // Determine the next counter based on latest request
+          let counter = 1;
+          if (latestRequests && latestRequests.length > 0) {
+            const lastNumber = latestRequests[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+
+          // Combine prefix + counter
+          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          // Final grand total
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          const { error } = await supabase.from("requests").insert([
+            {
+              user_id: user.id,
+              type,
+              date,
+              number: nextNumber,
+              requested_by,
+              urgency,
+              due_date,
+              status,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              items: updatedItems,
+              grand_total,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create request: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Request created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      //   Add Shipment Endpoint
+      case "addNewShipment": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addShipment." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          let { type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesShipments/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!date || !items || items.length === 0) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          const requestDate = new Date(date);
+          const month = requestDate.getMonth() + 1; // 0-based
+          const year = requestDate.getFullYear();
+
+          // Generate prefix for this month: YYYYMM
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          // Fetch latest shipment number
+          const { data: latestShipment, error: fetchError } = await supabase
+            .from("shipments")
+            .select("number")
+            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch latest shipment number: " + fetchError.message });
+          }
+
+          // Determine the next counter based on latest request
+          let counter = 1;
+          if (latestShipment && latestShipment.length > 0) {
+            const lastNumber = latestShipment[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+
+          // Combine prefix + counter
+          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          // Final grand total
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          const { error } = await supabase.from("shipments").insert([
+            {
+              user_id: user.id,
+              type,
+              date,
+              number: nextNumber,
+              tracking_number,
+              carrier,
+              shipping_date,
+              due_date,
+              status,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              items: updatedItems,
+              grand_total,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create shipment: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Shipment created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      case "addNewQuotation": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        try {
+          let { type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesQuotations/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!vendor_name || !quotation_date || !valid_until || !status || !terms || !items || items.length === 0 || !grand_total) {
+            return res.status(400).json({ error: true, message: "Missing required fields" });
+          }
+
+          // Generate quotation number
+          const quoteDate = new Date(quotation_date);
+          const month = quoteDate.getMonth() + 1;
+          const year = quoteDate.getFullYear();
+          const prefix = `${year}${String(month).padStart(2, "0")}`;
+
+          const { data: latestQuote, error: fetchError } = await supabase
+            .from("quotations_purchases")
+            .select("number")
+            .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
+            .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+            .order("number", { ascending: false })
+            .limit(1);
+
+          if (fetchError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch latest quotation number: " + fetchError.message,
+            });
+          }
+
+          let counter = 1;
+          if (latestQuote && latestQuote.length > 0) {
+            const lastNumber = latestQuote[0].number.toString();
+            const lastCounter = parseInt(lastNumber.slice(6), 10);
+            counter = lastCounter + 1;
+          }
+
+          const nextQuotationNumber = parseInt(`${prefix}${counter}`, 10);
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.unit_price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          const { error: insertError } = await supabase.from("quotations_purchases").insert([
+            {
+              user_id: user.id,
+              number: nextQuotationNumber,
+              vendor_name,
+              quotation_date,
+              valid_until,
+              status,
+              terms,
+              items: updatedItems,
+              grand_total,
+              memo,
+              type,
+              tax_details,
+              due_date,
+              tags,
+              tax_method,
+              dpp,
+              ppn,
+              pph,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (insertError)
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create quotation: " + insertError.message,
+            });
+
+          return res.status(201).json({ error: false, message: "Quotation created successfully" });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Invoice Endpoint
+      case "editNewInvoice": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editInvoice." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, memo, filesToDelete } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesInvoices/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Invoice ID is required",
+            });
+          }
+
+          // Check if invoice exists and belongs to user
+          const { data: existingInvoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).single();
+
+          if (fetchError || !existingInvoice) {
+            return res.status(404).json({
+              error: true,
+              message: "Invoice not found or unauthorized",
+            });
+          }
+
+          // Update items with total_per_item if items are provided
+          let updatedItems = existingInvoice.items;
+          if (items && items.length > 0) {
+            updatedItems = items.map((item) => {
+              const qty = Number(item.qty) || 0;
+              const price = Number(item.price) || 0;
+              const total_per_item = qty * price;
+
+              return {
+                ...item,
+                total_per_item,
+              };
+            });
+          }
+
+          // Calculate totals
+          const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+          const ppn = (dpp * (ppn_percentage || existingInvoice.ppn_percentage || 0)) / 100;
+          const pph = (dpp * (pph_percentage || existingInvoice.pph_percentage || 0)) / 100;
+          const grand_total = dpp + ppn - pph;
+
+          // Prepare update data
+          const updateData = {
+            type: type || existingInvoice.type,
+            date: date || existingInvoice.date,
+            approver: approver || existingInvoice.approver,
+            due_date: due_date || existingInvoice.due_date,
+            status: status || existingInvoice.status,
+            tags: tags || existingInvoice.tags,
+            items: updatedItems,
+            tax_calculation_method: tax_calculation_method || existingInvoice.tax_calculation_method,
+            ppn_percentage: ppn_percentage || existingInvoice.ppn_percentage,
+            pph_type: pph_type || existingInvoice.pph_type,
+            pph_percentage: pph_percentage || existingInvoice.pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            grand_total,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update invoice
+          const { error: updateError } = await supabase.from("invoices").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update invoice: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Invoice updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Offer Endpoint
+      case "editNewOffer": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editOffer." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, date, discount_terms, expiry_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesOffers/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Offer ID is required",
+            });
+          }
+
+          // Update items with total_per_item if items are provided
+          let updatedItems = existingOffer.items;
+          if (items && items.length > 0) {
+            updatedItems = items.map((item) => {
+              const qty = Number(item.qty) || 0;
+              const price = Number(item.price) || 0;
+              const total_per_item = qty * price;
+
+              return {
+                qty,
+                price,
+                item_name: item.name || item.item_name,
+                total_per_item,
+              };
+            });
+          }
+
+          // Calculate grand total
+          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          // First, let's verify the update conditions
+          const { data: verifyData, error: verifyError } = await supabase.from("offers").select("id").eq("id", id);
+
+          if (verifyError) {
+            return res.status(500).json({
+              error: true,
+              message: "Error verifying offer: " + verifyError.message,
+            });
+          }
+
+          if (!verifyData || verifyData.length === 0) {
+            return res.status(404).json({
+              error: true,
+              message: "Offer not found or unauthorized",
+            });
+          }
+
+          // Prepare the update data
+          const updateData = {
+            type: type || existingOffer.type,
+            date: date || existingOffer.date,
+            discount_terms: discount_terms !== undefined ? discount_terms : existingOffer.discount_terms,
+            expiry_date: expiry_date !== undefined ? expiry_date : existingOffer.expiry_date,
+            due_date: due_date || existingOffer.due_date,
+            status: status || existingOffer.status,
+            tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingOffer.tags,
+            items: updatedItems,
+            grand_total,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update offer
+          const { error: updateError } = await supabase.from("offers").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update offer: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Offer updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Order Endpoint
+      case "editNewOrder": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editOrder." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, date, orders_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesOrders/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Order ID is required",
+            });
+          }
+
+          // Check if order exists and belongs to user
+          const { data: existingOrder, error: fetchError } = await supabase.from("orders").select("*").eq("id", id).single();
+
+          if (fetchError || !existingOrder) {
+            return res.status(404).json({
+              error: true,
+              message: "Order not found or unauthorized",
+            });
+          }
+
+          // Update items with total_per_item if items are provided
+          let updatedItems = existingOrder.items;
+          if (items && items.length > 0) {
+            updatedItems = items.map((item) => {
+              const qty = Number(item.qty) || 0;
+              const price = Number(item.price) || 0;
+              const total_per_item = qty * price;
+
+              return {
+                ...item,
+                total_per_item,
+              };
+            });
+          }
+
+          // Calculate grand total
+          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          // Prepare update data
+          const updateData = {
+            type: type || existingOrder.type,
+            date: date || existingOrder.date,
+            orders_date: orders_date || existingOrder.orders_date,
+            due_date: due_date || existingOrder.due_date,
+            status: status || existingOrder.status,
+            tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingOrder.tags,
+            items: updatedItems,
+            grand_total,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update order
+          const { error: updateError } = await supabase.from("orders").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update order: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Order updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Request Endpoint
+      case "editNewRequest": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesRequests/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Request ID is required",
+            });
+          }
+
+          // Check if request exists and belongs to user
+          const { data: existingRequest, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).single();
+
+          if (fetchError || !existingRequest) {
+            return res.status(404).json({
+              error: true,
+              message: "Request not found or unauthorized",
+            });
+          }
+
+          // Update items with total_per_item if items are provided
+          let updatedItems = existingRequest.items;
+          if (items && items.length > 0) {
+            updatedItems = items.map((item) => {
+              const qty = Number(item.qty) || 0;
+              const price = Number(item.price) || 0;
+              const total_per_item = qty * price;
+
+              return {
+                ...item,
+                total_per_item,
+              };
+            });
+          }
+
+          // Calculate grand total
+          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          // Prepare update data
+          const updateData = {
+            type: type || existingRequest.type,
+            date: date || existingRequest.date,
+            requested_by: requested_by || existingRequest.requested_by,
+            urgency: urgency || existingRequest.urgency,
+            due_date: due_date || existingRequest.due_date,
+            status: status || existingRequest.status,
+            tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingRequest.tags,
+            items: updatedItems,
+            grand_total,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update request
+          const { error: updateError } = await supabase.from("requests").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update request: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Request updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Shipment Endpoint
+      case "editNewShipment": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editShipment." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesShipments/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Shipment ID is required",
+            });
+          }
+
+          // Check if shipment exists and belongs to user
+          const { data: existingShipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).single();
+
+          if (fetchError || !existingShipment) {
+            return res.status(404).json({
+              error: true,
+              message: "Shipment not found or unauthorized",
+            });
+          }
+
+          // Update items with total_per_item if items are provided
+          let updatedItems = existingShipment.items;
+          if (items && items.length > 0) {
+            updatedItems = items.map((item) => {
+              const qty = Number(item.qty) || 0;
+              const price = Number(item.price) || 0;
+              const total_per_item = qty * price;
+
+              return {
+                ...item,
+                total_per_item,
+              };
+            });
+          }
+
+          // Calculate grand total
+          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+          // Prepare update data
+          const updateData = {
+            type: type || existingShipment.type,
+            date: date || existingShipment.date,
+            tracking_number: tracking_number || existingShipment.tracking_number,
+            carrier: carrier || existingShipment.carrier,
+            shipping_date: shipping_date || existingShipment.shipping_date,
+            due_date: due_date || existingShipment.due_date,
+            status: status || existingShipment.status,
+            tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingShipment.tags,
+            items: updatedItems,
+            grand_total,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+          };
+
+          // Update shipment
+          const { error: updateError } = await supabase.from("shipments").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update shipment: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Shipment updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Quotations Endpoint
+      case "editNewQuotation": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const { id, type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, filesToDelete } = req.body;
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesQuotations/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({ error: true, message: "Missing required fields" });
+          }
+
+          const updatedItems = items.map((item) => {
+            const qty = Number(item.qty) || 0;
+            const unit_price = Number(item.unit_price) || 0;
+            const total_per_item = qty * unit_price;
+
+            return {
+              ...item,
+              total_per_item,
+            };
+          });
+
+          const { error: updateError } = await supabase
+            .from("quotations_purchases")
+            .update({
+              customer_name,
+              quotation_date,
+              valid_until,
+              status,
+              terms,
+              items: updatedItems,
+              total,
+              memo,
+              type,
+              tax_details,
+              attachment_url: newAttachmentUrls || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", id);
+
+          if (updateError) {
+            return res.status(500).json({ error: true, message: "Failed to update quotation: " + updateError.message });
+          }
+
+          return res.status(200).json({ error: false, message: "Quotation updated successfully" });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Delete Invoice, Shipment, Order, Offer, and Request Endpoint
+      case "deleteInvoice":
+      case "deleteShipment":
+      case "deleteOrder":
+      case "deleteOffer":
+      case "deleteRequest":
+      case "deleteQuotation": {
+        if (req.method !== "DELETE") {
+          return res.status(405).json({
+            error: true,
+            message: `Method not allowed. Use DELETE for ${action}.`,
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({
+            error: true,
+            message: "No authorization header provided",
+          });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({
+            error: true,
+            message: "Invalid or expired token",
+          });
+        }
+
+        // // Role permissions per case
+        // const permissionsMap = {
+        //   deleteInvoice: ["accounting", "finance", "manager", "admin"],
+        //   deleteShipment: ["warehousing", "logistics", "manager", "admin"],
+        //   deleteOrder: ["procurement", "manager", "admin"],
+        //   deleteOffer: ["procurement", "manager", "admin"],
+        //   deleteRequest: ["procurement", "manager", "admin"],
+        // };
+
+        // // Get user role from database
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Determine current case
+        // const currentCase = action;
+
+        // // Get allowed roles for current action
+        // const allowedRoles = permissionsMap[currentCase] || [];
+
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: `Access denied. Your role (${userProfile.role}) is not authorized to perform ${currentCase}.`,
+        //   });
+        // }
+
+        const tableMap = {
+          deleteInvoice: "invoices",
+          deleteShipment: "shipments",
+          deleteOrder: "orders",
+          deleteOffer: "offers",
+          deleteRequest: "requests",
+          deleteQuotation: "quotations_purchases",
+        };
+
+        const table = tableMap[action];
+        const { id } = req.body;
+
+        if (!id) {
+          return res.status(400).json({
+            error: true,
+            message: "ID is required",
+          });
+        }
+
+        const { data: item, error: fetchError } = await supabase.from(table).select("id").eq("id", id);
+
+        if (fetchError || !item || item.length === 0) {
+          return res.status(404).json({
+            error: true,
+            message: `${action.replace("delete", "")} not found or unauthorized`,
+          });
+        }
+
+        const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
+
+        if (deleteError) {
+          return res.status(500).json({
+            error: true,
+            message: `Failed to delete data: ${deleteError.message}`,
+          });
+        }
+
+        return res.status(200).json({
+          error: false,
+          message: `${action} deleted successfully`,
+        });
+      }
+
+      // Get Invoice Endpoint
+      case "getInvoice": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "finance", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("invoices").select("*").order("date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["approver"];
+          const numericColumns = ["grand_total"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^INV-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"INV"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Shipment Endpoint
+      case "getShipment": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["warehousing", "logistics", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("shipments").select("*").order("date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["tracking_number", "carrier"];
+          const numericColumns = ["grand_total"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^SH-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch shipments: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"SH"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Order Endpoint
+      case "getOrder": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("orders").select("*").order("date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const numericColumns = ["grand_total"];
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^ORD-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch orders: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"ORD"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Offer Endpoint
+      case "getOffer": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("offers").select("*").order("date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["discount_terms"];
+          const numericColumns = ["grand_total"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^OFR-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch offers: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"OFR"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Request Endpoint
+      case "getRequest": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("requests").select("*").order("date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["requested_by", "urgency"];
+          const numericColumns = ["grand_total"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^REQ-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch requests: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Approval Endpoint
+      case "getApproval": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        let query = supabase.from("requests").select("*").eq("status", "Pending");
+        query = query.order("date", { ascending: false }).limit(limit);
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Reject Request Endpoint
+      case "rejectRequest": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: true, message: "Request ID is required" });
+
+        const { data, error } = await supabase.from("requests").update({ status: "Cancelled" }).eq("id", id).select();
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to reject request: " + error.message });
+
+        if (!data || data.length === 0) {
+          return res.status(404).json({ error: true, message: "Request not found with the given ID" });
+        }
+
+        return res.status(200).json({ error: false, message: "Request rejected successfully" });
+      }
+
+      case "sendRequestToOffer": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendRequestToOffer." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get request with status "Pending"
+        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Pending").single();
+
+        if (fetchError || !request) {
+          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
+        }
+
+        // 2. Update the request status to "Completed"
+        const { error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", id);
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
+        }
+
+        // 3. Generate new offer number (similar with addOffer endpoint)
+        const requestDate = new Date(request.date);
+        const requestMonth = requestDate.getMonth() + 1;
+        const requestYear = requestDate.getFullYear();
+        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10);
+        const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        if (offerError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create offer from request: " + offerError.message,
+          });
+        }
+
+        let counter = 1;
+        if (latestOffer && latestOffer.length > 0) {
+          const lastNumber = latestOffer[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 4. Calculate again the grand total (optional)
+        const updatedItems = request.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        // 5. Insert to offers
+        const { error: insertError } = await supabase.from("offers").insert([
+          {
+            user_id: user.id,
+            type: "Offer",
+            date: request.date,
+            number: nextNumber,
+            discount_terms: null,
+            expiry_date: null,
+            due_date: request.due_date,
+            status: "Pending",
+            tags: request.tags,
+            items: updatedItems,
+            grand_total,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert offer: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Offer created from request successfully" });
+      }
+
+      //   Get Overdue Endpoint
+      case "getOverdue": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOverdue." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["finance", "accounting", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+
+        // Fetch all invoices
+        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total, status, due_date");
+
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
+        }
+
+        // Calculate totals
+        const unpaidTotal = invoices.filter((invoice) => invoice.status === "Unpaid").reduce((sum, invoice) => sum + (invoice.grand_total || 0), 0);
+
+        const overdueCount = invoices.filter((invoice) => invoice.status === "Unpaid" && new Date(invoice.due_date) < today).length;
+
+        const last30DaysTotal = invoices
+          .filter((invoice) => {
+            const dueDate = new Date(invoice.due_date);
+            return dueDate >= thirtyDaysAgo && dueDate <= today;
+          })
+          .reduce((sum, invoice) => sum + (invoice.grand_total || 0), 0);
+
+        return res.status(200).json({
+          error: false,
+          data: {
+            unpaid_total: unpaidTotal,
+            overdue_count: overdueCount,
+            last_30_days_total: last30DaysTotal,
+          },
+        });
+      }
+
+      // Get Quotation Endpoint
+      case "getQuotation": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["sales", "marketing", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("quotations_purchases").select("*").order("quotation_date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["vendor_name"];
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqFloatConditions.push("grand_total.eq." + parseFloat(search));
+          }
+
+          // For detect search like "Quotation #00588"
+          const codeMatch = search.match(/^quotation\s?#?0*(\d{7,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch quotation: " + error.message });
+
+        const formattedData = data.map((sale) => ({
+          ...sale,
+          number: `Quotation #${String(sale.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // =============================================================
+      // >>>>>>>>>>>>>>>>>  OLD ENDPOINT  <<<<<<<<<<<<<
+      // =============================================================
+
       // Add Invoice Endpoint
       case "addInvoice": {
         if (method !== "POST") {
@@ -1281,893 +4377,11 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Delete Invoice, Shipment, Order, Offer, and Request Endpoint
-      case "deleteInvoice":
-      case "deleteShipment":
-      case "deleteOrder":
-      case "deleteOffer":
-      case "deleteRequest": {
-        if (req.method !== "DELETE") {
-          return res.status(405).json({
-            error: true,
-            message: `Method not allowed. Use DELETE for ${action}.`,
-          });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({
-            error: true,
-            message: "No authorization header provided",
-          });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({
-            error: true,
-            message: "Invalid or expired token",
-          });
-        }
-
-        // // Role permissions per case
-        // const permissionsMap = {
-        //   deleteInvoice: ["accounting", "finance", "manager", "admin"],
-        //   deleteShipment: ["warehousing", "logistics", "manager", "admin"],
-        //   deleteOrder: ["procurement", "manager", "admin"],
-        //   deleteOffer: ["procurement", "manager", "admin"],
-        //   deleteRequest: ["procurement", "manager", "admin"],
-        // };
-
-        // // Get user role from database
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Determine current case
-        // const currentCase = action;
-
-        // // Get allowed roles for current action
-        // const allowedRoles = permissionsMap[currentCase] || [];
-
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: `Access denied. Your role (${userProfile.role}) is not authorized to perform ${currentCase}.`,
-        //   });
-        // }
-
-        const tableMap = {
-          deleteInvoice: "invoices",
-          deleteShipment: "shipments",
-          deleteOrder: "orders",
-          deleteOffer: "offers",
-          deleteRequest: "requests",
-        };
-
-        const table = tableMap[action];
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "ID is required",
-          });
-        }
-
-        const { data: item, error: fetchError } = await supabase.from(table).select("id").eq("id", id);
-
-        if (fetchError || !item || item.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: `${action.replace("delete", "")} not found or unauthorized`,
-          });
-        }
-
-        const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: `Failed to delete data: ${deleteError.message}`,
-          });
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: `${action} deleted successfully`,
-        });
-      }
-
-      // Get Invoice Endpoint
-      case "getInvoice": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["accounting", "finance", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { status } = req.query;
-        const search = req.query.search?.toLowerCase();
-        const pagination = parseInt(req.query.page) || 1;
-        const limitValue = parseInt(req.query.limit) || 10;
-        const from = (pagination - 1) * limitValue;
-        const to = from + limitValue - 1;
-
-        let query = supabase.from("invoices").select("*").order("date", { ascending: false }).range(from, to);
-
-        if (status) query = query.eq("status", status);
-
-        if (search) {
-          const stringColumns = ["approver"];
-          const numericColumns = ["grand_total"];
-
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
-
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^INV-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
-            }
-          }
-
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
-        }
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + error.message });
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"INV"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Shipment Endpoint
-      case "getShipment": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["warehousing", "logistics", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { status } = req.query;
-        const search = req.query.search?.toLowerCase();
-        const pagination = parseInt(req.query.page) || 1;
-        const limitValue = parseInt(req.query.limit) || 10;
-        const from = (pagination - 1) * limitValue;
-        const to = from + limitValue - 1;
-
-        let query = supabase.from("shipments").select("*").order("date", { ascending: false }).range(from, to);
-
-        if (status) query = query.eq("status", status);
-
-        if (search) {
-          const stringColumns = ["tracking_number", "carrier"];
-          const numericColumns = ["grand_total"];
-
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
-
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^SH-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
-            }
-          }
-
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
-        }
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch shipments: " + error.message });
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"SH"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Order Endpoint
-      case "getOrder": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { status } = req.query;
-        const search = req.query.search?.toLowerCase();
-        const pagination = parseInt(req.query.page) || 1;
-        const limitValue = parseInt(req.query.limit) || 10;
-        const from = (pagination - 1) * limitValue;
-        const to = from + limitValue - 1;
-
-        let query = supabase.from("orders").select("*").order("date", { ascending: false }).range(from, to);
-
-        if (status) query = query.eq("status", status);
-
-        if (search) {
-          const numericColumns = ["grand_total"];
-
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
-
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^ORD-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
-            }
-          }
-
-          const searchConditions = [...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
-        }
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch orders: " + error.message });
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"ORD"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Offer Endpoint
-      case "getOffer": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { status } = req.query;
-        const search = req.query.search?.toLowerCase();
-        const pagination = parseInt(req.query.page) || 1;
-        const limitValue = parseInt(req.query.limit) || 10;
-        const from = (pagination - 1) * limitValue;
-        const to = from + limitValue - 1;
-
-        let query = supabase.from("offers").select("*").order("date", { ascending: false }).range(from, to);
-
-        if (status) query = query.eq("status", status);
-
-        if (search) {
-          const stringColumns = ["discount_terms"];
-          const numericColumns = ["grand_total"];
-
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
-
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^OFR-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
-            }
-          }
-
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
-        }
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch offers: " + error.message });
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"OFR"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Request Endpoint
-      case "getRequest": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { status } = req.query;
-        const search = req.query.search?.toLowerCase();
-        const pagination = parseInt(req.query.page) || 1;
-        const limitValue = parseInt(req.query.limit) || 10;
-        const from = (pagination - 1) * limitValue;
-        const to = from + limitValue - 1;
-
-        let query = supabase.from("requests").select("*").order("date", { ascending: false }).range(from, to);
-
-        if (status) query = query.eq("status", status);
-
-        if (search) {
-          const stringColumns = ["requested_by", "urgency"];
-          const numericColumns = ["grand_total"];
-
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
-
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^REQ-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
-            }
-          }
-
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
-        }
-
-        const { data, error } = await query;
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch requests: " + error.message });
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Get Approval Endpoint
-      case "getApproval": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval.` });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header provided" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const limit = parseInt(req.query.limit) || 10;
-
-        let query = supabase.from("requests").select("*").eq("status", "Pending");
-        query = query.order("date", { ascending: false }).limit(limit);
-
-        const { data, error } = await query;
-
-        if (error) {
-          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
-        }
-
-        const formattedData = data.map((item) => ({
-          ...item,
-          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
-        }));
-
-        return res.status(200).json({ error: false, data: formattedData });
-      }
-
-      // Reject Request Endpoint
-      case "rejectRequest": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectRequest." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { id } = req.body;
-        if (!id) return res.status(400).json({ error: true, message: "Request ID is required" });
-
-        const { data, error } = await supabase.from("requests").update({ status: "Cancelled" }).eq("id", id).select();
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to reject request: " + error.message });
-
-        if (!data || data.length === 0) {
-          return res.status(404).json({ error: true, message: "Request not found with the given ID" });
-        }
-
-        return res.status(200).json({ error: false, message: "Request rejected successfully" });
-      }
-
-      case "sendRequestToOffer": {
-        if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendRequestToOffer." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { id } = req.body;
-        if (!id) {
-          return res.status(400).json({ error: true, message: "Missing Request ID" });
-        }
-
-        // 1. Get request with status "Pending"
-        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Pending").single();
-
-        if (fetchError || !request) {
-          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
-        }
-
-        // 2. Update the request status to "Completed"
-        const { error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", id);
-
-        if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
-        }
-
-        // 3. Generate new offer number (similar with addOffer endpoint)
-        const requestDate = new Date(request.date);
-        const requestMonth = requestDate.getMonth() + 1;
-        const requestYear = requestDate.getFullYear();
-        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
-        const prefixInt = parseInt(prefix + "0", 10);
-        const nextPrefixInt = parseInt(prefix + "9999", 10);
-
-        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
-
-        if (offerError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to create offer from request: " + offerError.message,
-          });
-        }
-
-        let counter = 1;
-        if (latestOffer && latestOffer.length > 0) {
-          const lastNumber = latestOffer[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
-        }
-
-        const nextNumber = parseInt(`${prefix}${counter}`, 10);
-
-        // 4. Calculate again the grand total (optional)
-        const updatedItems = request.items.map((item) => {
-          const qty = Number(item.qty) || 0;
-          const unit_price = Number(item.price) || 0;
-          return {
-            ...item,
-            total_per_item: qty * unit_price,
-          };
-        });
-
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
-
-        // 5. Insert to offers
-        const { error: insertError } = await supabase.from("offers").insert([
-          {
-            user_id: user.id,
-            type: "Offer",
-            date: request.date,
-            number: nextNumber,
-            discount_terms: null,
-            expiry_date: null,
-            due_date: request.due_date,
-            status: "Pending",
-            tags: request.tags,
-            items: updatedItems,
-            grand_total,
-          },
-        ]);
-
-        if (insertError) {
-          return res.status(500).json({ error: true, message: "Failed to insert offer: " + insertError.message });
-        }
-
-        return res.status(201).json({ error: false, message: "Offer created from request successfully" });
-      }
-
-      //   Get Overdue Endpoint
-      case "getOverdue": {
-        if (method !== "GET") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOverdue." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
-
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["finance", "accounting", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const today = new Date();
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 30);
-
-        // Fetch all invoices
-        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total, status, due_date");
-
-        if (fetchError) {
-          return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
-        }
-
-        // Calculate totals
-        const unpaidTotal = invoices.filter((invoice) => invoice.status === "Unpaid").reduce((sum, invoice) => sum + (invoice.grand_total || 0), 0);
-
-        const overdueCount = invoices.filter((invoice) => invoice.status === "Unpaid" && new Date(invoice.due_date) < today).length;
-
-        const last30DaysTotal = invoices
-          .filter((invoice) => {
-            const dueDate = new Date(invoice.due_date);
-            return dueDate >= thirtyDaysAgo && dueDate <= today;
-          })
-          .reduce((sum, invoice) => sum + (invoice.grand_total || 0), 0);
-
-        return res.status(200).json({
-          error: false,
-          data: {
-            unpaid_total: unpaidTotal,
-            overdue_count: overdueCount,
-            last_30_days_total: last30DaysTotal,
-          },
-        });
-      }
-
-      //   Get Invoice Report Endpoint
+      // =============================================================
+      // >>>>>>>>>>>>>>>>>  EXAMPLE FOR FLUENTREPORT  <<<<<<<<<<<<<
+      // =============================================================
+
+      // //   Get Invoice Report Endpoint
       // case "getInvoiceReport": {
       //   if (method !== "GET") {
       //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoiceReport." });

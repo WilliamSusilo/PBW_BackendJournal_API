@@ -716,9 +716,9 @@ module.exports = async (req, res) => {
 
           const fileBuffer = await fs.readFile(filePath);
           const fileExt = path.extname(proofFile.originalFilename || ".png");
-          const fileName = `proofs/${user.id}_${Date.now()}${fileExt}`;
+          const fileName = `cashbankReceiveMoney/${user.id}_${Date.now()}${fileExt}`;
 
-          const { data: uploadData, error: uploadError } = await supabase.storage.from("receipts").upload(fileName, fileBuffer, {
+          const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
             contentType: proofFile.mimetype || "image/png",
             upsert: false,
           });

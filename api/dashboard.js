@@ -1,5 +1,6 @@
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
 const Cors = require("cors");
+const formidable = require("formidable");
 
 // Initialization for middleware CORS
 const cors = Cors({
@@ -262,15 +263,30 @@ module.exports = async (req, res) => {
   let action = method === "GET" ? query.action : null;
 
   if (method !== "GET" && headers["content-type"]?.includes("multipart/form-data")) {
-    const form = new formidable.IncomingForm({ keepExtensions: true });
+    console.log("=== FORMIDABLE PARSING DEBUG ===");
+    console.log("Content-Type:", headers["content-type"]);
+    console.log("Method:", method);
+
+    const form = new formidable.IncomingForm({
+      keepExtensions: true,
+      maxFileSize: 10 * 1024 * 1024, // 10MB
+      multiples: true,
+    });
 
     try {
       const { fields, files: parsedFiles } = await new Promise((resolve, reject) => {
         form.parse(req, (err, fields, files) => {
+          console.log("Formidable parse callback:");
+          console.log("Error:", err);
+          console.log("Fields:", fields);
+          console.log("Files:", files);
           if (err) reject(err);
           else resolve({ fields, files });
         });
       });
+
+      console.log("Parsed fields:", fields);
+      console.log("Parsed files:", parsedFiles);
 
       // Normalize fields so they are not arrays
       for (const key in fields) {
@@ -283,8 +299,11 @@ module.exports = async (req, res) => {
       // Save to req so it can be used in handler
       req.body = body;
       req.files = files;
-      console.log("Files:", req.files);
+      console.log("Final req.body:", req.body);
+      console.log("Final req.files:", req.files);
+      console.log("===============================");
     } catch (err) {
+      console.error("Formidable parsing error:", err);
       return res.status(400).json({ error: true, message: "Error parsing form-data: " + err.message });
     }
   } else if (method !== "GET") {
@@ -1040,32 +1059,53 @@ module.exports = async (req, res) => {
             }
           }
 
-          // Log isi journal_details untuk debugging
-          const { data: journals, error: journalErr } = await supabase.from("journal_of_COA").select("id, journal_details").limit(5);
+          // Ambil semua journal yang memiliki journal_details
+          const { data: allJournals, error: journalErr } = await supabase.from("journal_of_COA").select("id, journal_code, journal_details").not("journal_details", "is", null);
 
           if (journalErr) {
-            console.error("Error ambil journal_details:", journalErr);
-          } else {
-            console.log("Isi journal_details:", JSON.stringify(journals, null, 2));
-          }
-
-          // Check journal references in JSON array (convert JSONB to text for pattern search)
-          const { data: refsByCode, error: errCode } = await supabase.from("journal_of_COA").select("id").contains("journal_details", { account_code: acct.account_code }).limit(1);
-
-          const { data: refsById, error: errId } = await supabase.from("journal_of_COA").select("id").contains("journal_details", { account_id: acct.id }).limit(1);
-
-          if (errCode || errId) {
             return res.status(500).json({
               error: true,
-              message: "Failed to check journal references.",
-              details: { errCode, errId },
+              message: "Failed to check journal references: " + journalErr.message,
             });
           }
 
-          if ((refsByCode && refsByCode.length > 0) || (refsById && refsById.length > 0)) {
+          // Cek apakah ada journal yang menggunakan account_code atau account_id ini
+          let foundJournals = [];
+          if (allJournals && allJournals.length > 0) {
+            for (const journal of allJournals) {
+              if (journal.journal_details && Array.isArray(journal.journal_details)) {
+                // Cek setiap item dalam journal_details array
+                for (const detail of journal.journal_details) {
+                  // Cek berdasarkan account_code atau account_id
+                  if (detail.account_code === acct.account_code || detail.account_id === acct.id) {
+                    foundJournals.push({
+                      journal_id: journal.id,
+                      journal_code: journal.journal_code,
+                      account_code: detail.account_code,
+                      account_id: detail.account_id,
+                      debit: detail.debit,
+                      credit: detail.credit,
+                      description: detail.description,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Jika ditemukan journal yang menggunakan account_code atau account_id ini
+          if (foundJournals.length > 0) {
             return res.status(403).json({
               error: true,
-              message: "Account is used in journals and cannot be deleted.",
+              message: `Account "${acct.name}" (${acct.account_code}) cannot be deleted because it is still in use in ${foundJournals.length} journal transactions!`,
+              details: {
+                account_code: acct.account_code,
+                account_name: acct.account_name,
+                account_id: acct.id,
+                used_in_journals: foundJournals.length,
+                sample_journals: foundJournals.slice(0, 3), // Tampilkan 3 contoh saja
+                message: "Delete or edit any journals that use this account first before deleting the account!",
+              },
             });
           }
 
@@ -1104,7 +1144,91 @@ module.exports = async (req, res) => {
         const { supabase, user } = auth;
 
         try {
-          const { journal_code: providedJournalCode, date, tag, journal_details, memo, total_debit: providedTotalDebit, total_credit: providedTotalCredit, attachment_url } = req.body;
+          const { journal_code: providedJournalCode, date, tag, journal_details: journalDetailsRaw, memo, total_debit: providedTotalDebit, total_credit: providedTotalCredit } = req.body;
+
+          // Parse journal_details if it's a string (from form-data)
+          let journal_details;
+          try {
+            console.log("=== DEBUG JOURNAL DETAILS ===");
+            console.log("Type of journalDetailsRaw:", typeof journalDetailsRaw);
+            console.log("Value of journalDetailsRaw:", journalDetailsRaw);
+
+            if (typeof journalDetailsRaw === "string") {
+              journal_details = JSON.parse(journalDetailsRaw);
+              console.log("Parsed journal_details:", journal_details);
+            } else {
+              journal_details = journalDetailsRaw;
+              console.log("Using journal_details as is:", journal_details);
+            }
+            console.log("Final journal_details type:", typeof journal_details);
+            console.log("Is Array:", Array.isArray(journal_details));
+            console.log("=============================");
+          } catch (parseError) {
+            console.error("Parse error:", parseError);
+            return res.status(400).json({
+              error: true,
+              message: "Invalid journal_details format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Handle file upload for attachment
+          console.log("=== DEBUG FILE UPLOAD (addNewJournal) ===");
+          console.log("req.files:", req.files);
+          console.log("req.files?.attachment_url:", req.files?.attachment_url);
+
+          const attachmentFileArray = req.files?.attachment_url;
+          let attachment_url = null;
+
+          // Upload attachment file if any
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            // Handle both single file and array of files
+            const attachmentFile = Array.isArray(attachmentFileArray) ? attachmentFileArray[0] : attachmentFileArray;
+
+            console.log("Processed attachmentFile:", attachmentFile);
+            console.log("File path:", attachmentFile?.filepath);
+            console.log("Original filename:", attachmentFile?.originalFilename);
+            console.log("MIME type:", attachmentFile?.mimetype);
+
+            if (!attachmentFile || !attachmentFile.filepath) {
+              console.log("❌ No valid attachment file found");
+              return res.status(400).json({ error: true, message: "No attachment file uploaded or invalid file" });
+            }
+
+            try {
+              const filePath = attachmentFile.filepath;
+              console.log("Reading file from:", filePath);
+
+              const fileBuffer = await fs.readFile(filePath);
+              console.log("File buffer size:", fileBuffer.length);
+
+              const fileExt = path.extname(attachmentFile.originalFilename || ".png");
+              const fileName = `journalEntries/${user.id}_${Date.now()}${fileExt}`;
+              console.log("Uploading to:", fileName);
+
+              const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                contentType: attachmentFile.mimetype || "image/png",
+                upsert: false,
+              });
+
+              if (uploadError) {
+                console.error("❌ Upload error:", uploadError);
+                return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+              }
+
+              console.log("✅ Upload successful:", uploadData);
+              attachment_url = uploadData.path;
+              console.log("Final attachment_url:", attachment_url);
+            } catch (fileError) {
+              console.error("❌ File processing error:", fileError);
+              return res.status(500).json({ error: true, message: "Failed to process attachment file: " + fileError.message });
+            }
+          } else {
+            console.log("ℹ️ No attachment file provided");
+          }
+          console.log("=====================================");
 
           // Basic required
           if (!date || !journal_details) {
@@ -1272,7 +1396,24 @@ module.exports = async (req, res) => {
 
         try {
           // Destructure dengan alias agar konsisten dengan addNewJournal
-          const { id, journal_code: newJournalCode, date, tag, journal_details, memo, total_debit: providedTotalDebit, total_credit: providedTotalCredit, attachment_url } = req.body;
+          const { id, journal_code: newJournalCode, date, tag, journal_details: journalDetailsRaw, memo, total_debit: providedTotalDebit, total_credit: providedTotalCredit } = req.body;
+
+          // Parse journal_details if it's a string (from form-data)
+          let journal_details;
+          if (journalDetailsRaw) {
+            try {
+              if (typeof journalDetailsRaw === "string") {
+                journal_details = JSON.parse(journalDetailsRaw);
+              } else {
+                journal_details = journalDetailsRaw;
+              }
+            } catch (parseError) {
+              return res.status(400).json({
+                error: true,
+                message: "Invalid journal_details format. Must be valid JSON array: " + parseError.message,
+              });
+            }
+          }
 
           if (!id) {
             return res.status(400).json({
@@ -1290,6 +1431,65 @@ module.exports = async (req, res) => {
               message: "Journal not found",
             });
           }
+
+          // Handle file upload for attachment
+          console.log("=== DEBUG FILE UPLOAD ===");
+          console.log("req.files:", req.files);
+          console.log("req.files?.attachment_url:", req.files?.attachment_url);
+
+          const attachmentFileArray = req.files?.attachment_url;
+          let attachment_url = journal.attachment_url; // Keep existing attachment if no new file uploaded
+
+          // Upload attachment file if any
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            // Handle both single file and array of files
+            const attachmentFile = Array.isArray(attachmentFileArray) ? attachmentFileArray[0] : attachmentFileArray;
+
+            console.log("Processed attachmentFile:", attachmentFile);
+            console.log("File path:", attachmentFile?.filepath);
+            console.log("Original filename:", attachmentFile?.originalFilename);
+            console.log("MIME type:", attachmentFile?.mimetype);
+
+            if (!attachmentFile || !attachmentFile.filepath) {
+              console.log("❌ No valid attachment file found");
+              return res.status(400).json({ error: true, message: "No attachment file uploaded or invalid file" });
+            }
+
+            try {
+              const filePath = attachmentFile.filepath;
+              console.log("Reading file from:", filePath);
+
+              const fileBuffer = await fs.readFile(filePath);
+              console.log("File buffer size:", fileBuffer.length);
+
+              const fileExt = path.extname(attachmentFile.originalFilename || ".png");
+              const fileName = `journalEntries/${user.id}_${Date.now()}${fileExt}`;
+              console.log("Uploading to:", fileName);
+
+              const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                contentType: attachmentFile.mimetype || "image/png",
+                upsert: false,
+              });
+
+              if (uploadError) {
+                console.error("❌ Upload error:", uploadError);
+                return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+              }
+
+              console.log("✅ Upload successful:", uploadData);
+              attachment_url = uploadData.path;
+              console.log("Final attachment_url:", attachment_url);
+            } catch (fileError) {
+              console.error("❌ File processing error:", fileError);
+              return res.status(500).json({ error: true, message: "Failed to process attachment file: " + fileError.message });
+            }
+          } else {
+            console.log("ℹ️ No attachment file provided, keeping existing:", attachment_url);
+          }
+          console.log("==========================");
 
           let totalAmountDebit = providedTotalDebit;
           let totalAmountCredit = providedTotalCredit;
