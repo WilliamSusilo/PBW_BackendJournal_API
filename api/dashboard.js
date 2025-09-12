@@ -647,10 +647,10 @@ module.exports = async (req, res) => {
         }
 
         const auth = await ensureAuth(req, res);
-        if (!auth) return; // ensureAuth already replied
+        if (!auth) return;
         const { supabase, user } = auth;
 
-        // expected fields
+        // Expected Fields
         const { name, account_code: provided_code, level, parent_code, parent_id, category, tax, bank_name, entry_balance, description, user_access, lock_option, detail_type, detail_desc } = body;
 
         // Minimal Validation
@@ -663,13 +663,13 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Invalid level. Allowed values: 1, 2, 3" });
         }
 
-        // ==== VALIDASI DETAIL_TYPE & DETAIL_DESC ====
+        // Detail Type & Detail Desc Validation
         const validDetailTypes = ["Parent Account", "Sub-Parent Account", "Sub-Child Account"];
         if (!detail_type || !validDetailTypes.includes(detail_type)) {
           return res.status(400).json({ error: true, message: "Invalid detail_type. Allowed: Parent Account, Sub-Parent Account, Sub-Child Account" });
         }
 
-        // Pemetaan detail_type ↔ level
+        // Mapping for detail_type --> level
         const levelTypeMap = {
           1: "Parent Account",
           2: "Sub-Parent Account",
@@ -1454,7 +1454,7 @@ module.exports = async (req, res) => {
             console.log("MIME type:", attachmentFile?.mimetype);
 
             if (!attachmentFile || !attachmentFile.filepath) {
-              console.log("❌ No valid attachment file found");
+              console.log("No valid attachment file found");
               return res.status(400).json({ error: true, message: "No attachment file uploaded or invalid file" });
             }
 

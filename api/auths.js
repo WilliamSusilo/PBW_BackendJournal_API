@@ -422,6 +422,146 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data });
       }
 
+      // Get User and Role Endpoint
+      case "getRole": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getRole." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // Get user roles from database (e.g. 'profiles' or 'users' table)
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        let query = supabase.from("profiles").select("id, email, name, role");
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch user and role: " + error.message });
+
+        return res.status(200).json({ error: false, data });
+      }
+
+      // Upload Company Logo
+      case "uploadLogo": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for uploadLogo." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        try {
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `companyLogo/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          const { error } = await supabase.from("invoices").insert([
+            {
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to upload logo: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Logo was uploaded successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Change Company Logo
+
+      // Get Company Logo
+
+      // Delete Company Logo
+
       // Non-existent Endpoint
       default:
         return res.status(404).json({ error: true, message: "Endpoint not found" });

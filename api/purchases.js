@@ -971,7 +971,7 @@ module.exports = async (req, res) => {
 
       case "addNewQuotation": {
         if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addQuotation." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addNewQuotation." });
         }
 
         const authHeader = req.headers.authorization;
@@ -987,8 +987,34 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["purchasing", "admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph } = req.body;
+          let { type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, vendor_address, vendor_phone, start_date } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1046,7 +1072,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!vendor_name || !quotation_date || !valid_until || !status || !terms || !items || items.length === 0 || !grand_total) {
+          if (!vendor_name || !quotation_date || !valid_until || !status || !terms || !items || items.length === 0 || !grand_total || !total || !vendor_address || !vendor_phone || !start_date) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
@@ -1101,16 +1127,20 @@ module.exports = async (req, res) => {
               status,
               terms,
               items: updatedItems,
+              total,
               grand_total,
               memo,
               type,
               tax_details,
               due_date,
-              tags,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
               tax_method,
               dpp,
               ppn,
               pph,
+              vendor_address,
+              vendor_phone,
+              start_date,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -2029,7 +2059,29 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, filesToDelete } = req.body;
+          const {
+            id,
+            type,
+            vendor_name,
+            quotation_date,
+            valid_until,
+            status,
+            terms,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            tax_details,
+            due_date,
+            tags,
+            tax_method,
+            dpp,
+            ppn,
+            pph,
+            vendor_address,
+            vendor_phone,
+            start_date,
+            filesToDelete,
+          } = req.body;
           // Parse items if they come in string form (because of form-data)
           let items;
           try {
@@ -2135,6 +2187,17 @@ module.exports = async (req, res) => {
               tax_details,
               attachment_url: newAttachmentUrls || null,
               updated_at: new Date().toISOString(),
+              vendor_name,
+              grand_total,
+              due_date,
+              tags,
+              tax_method,
+              dpp,
+              ppn,
+              pph,
+              vendor_address,
+              vendor_phone,
+              start_date,
             })
             .eq("id", id);
 
@@ -2732,10 +2795,10 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: formattedData });
       }
 
-      // Get Approval Endpoint
-      case "getApproval": {
+      // Get Approval Quotation Endpoint
+      case "getApprovalQuotation": {
         if (method !== "GET") {
-          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval.` });
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval Quotation.` });
         }
 
         const authHeader = req.headers.authorization;
@@ -2776,7 +2839,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("requests").select("*").eq("status", "Pending");
+        let query = supabase.from("quotations_purchases").select("*").eq("status", "Pending");
         query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -2787,7 +2850,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+          number: `${"QUO"}-${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -2844,9 +2907,10 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Request rejected successfully" });
       }
 
-      case "sendRequestToOffer": {
+      // Approval Request Endpoint
+      case "sendRequestToOrder": {
         if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendRequestToOffer." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendRequestToOrder." });
         }
 
         const authHeader = req.headers.authorization;
@@ -2866,24 +2930,24 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
 
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
 
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
+        // Check if the user role is among those permitted
+        const allowedRoles = ["procurement"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
 
         const { id } = req.body;
         if (!id) {
@@ -2891,20 +2955,22 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get request with status "Pending"
-        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).eq("status", "Pending").single();
+        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !request) {
           return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
         }
 
+        const requestId = String(id);
+
         // 2. Update the request status to "Completed"
-        const { error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", id);
+        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", requestId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
         }
 
-        // 3. Generate new offer number (similar with addOffer endpoint)
+        // 3. Generate new order number (similar with addNewOrder endpoint)
         const requestDate = new Date(request.date);
         const requestMonth = requestDate.getMonth() + 1;
         const requestYear = requestDate.getFullYear();
@@ -2912,18 +2978,18 @@ module.exports = async (req, res) => {
         const prefixInt = parseInt(prefix + "0", 10);
         const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        const { data: latestOrder, error: orderError } = await supabase.from("orders").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
-        if (offerError) {
+        if (orderError) {
           return res.status(500).json({
             error: true,
-            message: "Failed to create offer from request: " + offerError.message,
+            message: "Failed to create order from request: " + orderError.message,
           });
         }
 
         let counter = 1;
-        if (latestOffer && latestOffer.length > 0) {
-          const lastNumber = latestOffer[0].number.toString();
+        if (latestOrder && latestOrder.length > 0) {
+          const lastNumber = latestOrder[0].number.toString();
           const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
           counter = lastCounter + 1;
         }
@@ -2942,20 +3008,277 @@ module.exports = async (req, res) => {
 
         const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
+        // 5. Insert to orders
+        const { error: insertError } = await supabase.from("orders").insert([
+          {
+            user_id: user.id,
+            type: "Order",
+            date: request.date,
+            number: nextNumber,
+            requested_by: "",
+            urgency: "Low",
+            orders_date: "",
+            due_date: request.due_date,
+            status: "Pending",
+            tags: request.tags,
+            items: updatedItems,
+            grand_total: request.grand_total,
+            memo: request.memo,
+            attachment_url: request.attachment_url,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert order: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Order created from request successfully" });
+      }
+
+      // Approval Offer Endpoint
+      case "sendOfferToRequest": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendOfferToRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["procurement"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get offer with status "Pending"
+        const { data: offer, error: fetchError } = await supabase.from("offers").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !offer) {
+          return res.status(404).json({ error: true, message: "Offer not found or already completed/cancelled" });
+        }
+
+        const offerId = String(id);
+
+        // 2. Update the offer status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("offers").update({ status: "Completed" }).eq("id", offerId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update offer status: " + updateStatusError.message });
+        }
+
+        // 3. Generate new request number (similar with addNewRequest endpoint)
+        const offerDate = new Date(offer.date);
+        const offerMonth = offerDate.getMonth() + 1;
+        const offerYear = offerDate.getFullYear();
+        const prefix = `${offerYear}${String(offerMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10);
+        const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        const { data: latestRequest, error: requestError } = await supabase.from("requests").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        if (requestError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create request from offer: " + requestError.message,
+          });
+        }
+
+        let counter = 1;
+        if (latestRequest && latestRequest.length > 0) {
+          const lastNumber = latestRequest[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 4. Calculate again the grand total (optional)
+        const updatedItems = offer.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        // 5. Insert to requests
+        const { error: insertError } = await supabase.from("requests").insert([
+          {
+            user_id: user.id,
+            type: "Request",
+            date: offer.date,
+            number: nextNumber,
+            requested_by: "",
+            urgency: "Low",
+            due_date: offer.due_date,
+            status: "Pending",
+            tags: offer.tags,
+            items: updatedItems,
+            grand_total: offer.grand_total,
+            memo: offer.memo,
+            attachment_url: offer.attachment_url,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert request: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Request created from offer successfully" });
+      }
+
+      // Approval Quotation Endpoint
+      case "sendQuotationToOffer": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendQuotationToOffer." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["procurement"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get quotation with status "Pending"
+        const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !quotation) {
+          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+        }
+
+        const quotationId = String(id);
+
+        // 2. Update the quotation status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Completed" }).eq("id", quotationId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+        }
+
+        // 3. Generate new offer number (similar with addNewOffer endpoint)
+        const quotationDate = new Date(quotation.quotation_date);
+        const quotationMonth = quotationDate.getMonth() + 1;
+        const quotationYear = quotationDate.getFullYear();
+        const prefix = `${quotationYear}${String(quotationMonth).padStart(2, "0")}`;
+        const prefixInt = parseInt(prefix + "0", 10);
+        const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        if (offerError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create offer from quotation: " + offerError.message,
+          });
+        }
+
+        let counter = 1;
+        if (latestOffer && latestOffer.length > 0) {
+          const lastNumber = latestOffer[0].number.toString();
+          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+          counter = lastCounter + 1;
+        }
+
+        const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 4. Calculate again the grand total (optional)
+        const updatedItems = quotation.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
         // 5. Insert to offers
         const { error: insertError } = await supabase.from("offers").insert([
           {
             user_id: user.id,
             type: "Offer",
-            date: request.date,
+            date: quotation.quotation_date,
             number: nextNumber,
             discount_terms: null,
             expiry_date: null,
-            due_date: request.due_date,
+            due_date: quotation.due_date,
             status: "Pending",
-            tags: request.tags,
+            tags: quotation.tags,
             items: updatedItems,
-            grand_total,
+            grand_total: quotation.grand_total,
+            memo: quotation.memo,
+            attachment_url: quotation.attachment_url,
           },
         ]);
 
@@ -2963,7 +3286,139 @@ module.exports = async (req, res) => {
           return res.status(500).json({ error: true, message: "Failed to insert offer: " + insertError.message });
         }
 
-        return res.status(201).json({ error: false, message: "Offer created from request successfully" });
+        return res.status(201).json({ error: false, message: "Offer created from quotation successfully" });
+      }
+
+      // Reject Quotation Endpoint
+      case "rejectQuotation": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["procurement", "admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get quotation with status "Pending"
+        const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !quotation) {
+          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+        }
+
+        const quotationId = String(id);
+
+        // 2. Update the quotation status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Rejected" }).eq("id", quotationId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Quotation has been rejected successfully" });
+      }
+
+      // Reject Request Endpoint
+      case "rejectRequest": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectRequest." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        // Check if the user role is among those permitted
+        const allowedRoles = ["procurement", "admin"];
+        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get requests with status "Pending"
+        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !request) {
+          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
+        }
+
+        const requestId = String(id);
+
+        // 2. Update the request status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Rejected" }).eq("id", requestId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Request has been rejected successfully" });
       }
 
       //   Get Overdue Endpoint
