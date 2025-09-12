@@ -14,7 +14,7 @@ const Cors = require("cors");
 // Initialization for middleware CORS
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS", "PATCH", "PUT", "DELETE"],
-  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app", "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app/"],
+  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app", "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 

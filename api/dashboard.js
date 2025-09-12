@@ -11,7 +11,7 @@ const cors = Cors({
     "https://preview--prabaraja-webapp.lovable.app",
     "https://44228f79-5a06-42bd-a4cf-7472726b027d.lovableproject.com",
     "https://prabaraja-webapp.vercel.app",
-    "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app/",
+    "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app",
   ],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
