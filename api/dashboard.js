@@ -5,7 +5,14 @@ const formidable = require("formidable");
 // Initialization for middleware CORS
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS", "PATCH", "PUT", "DELETE"],
-  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://preview--prabaraja-webapp.lovable.app", "https://44228f79-5a06-42bd-a4cf-7472726b027d.lovableproject.com", "https://prabaraja-webapp.vercel.app"],
+  origin: [
+    "http://localhost:8080",
+    "http://192.168.100.3:8080",
+    "https://preview--prabaraja-webapp.lovable.app",
+    "https://44228f79-5a06-42bd-a4cf-7472726b027d.lovableproject.com",
+    "https://prabaraja-webapp.vercel.app",
+    "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app/",
+  ],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 
