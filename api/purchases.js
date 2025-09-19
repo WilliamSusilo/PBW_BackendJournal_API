@@ -136,8 +136,40 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, grand_total, memo } = req.body;
+          let { type, number, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, grand_total, memo } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -202,36 +234,59 @@ module.exports = async (req, res) => {
             });
           }
 
-          const requestDate = new Date(date);
-          const month = requestDate.getMonth() + 1; // 0-based
-          const year = requestDate.getFullYear();
+          // const requestDate = new Date(date);
+          // const month = requestDate.getMonth() + 1; // 0-based
+          // const year = requestDate.getFullYear();
 
-          // Generate prefix for this month: YYYYMM
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate prefix for this month: YYYYMM
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          // Fetch latest invoice number
-          const { data: latestInvoice, error: fetchError } = await supabase
-            .from("invoices")
-            .select("number")
-            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // // Fetch latest invoice number
+          // const { data: latestInvoice, error: fetchError } = await supabase
+          //   .from("invoices")
+          //   .select("number")
+          //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({ error: true, message: "Failed to fetch latest invoice number: " + fetchError.message });
+          // }
+
+          // // Determine the next counter based on latest request
+          // let counter = 1;
+          // if (latestInvoice && latestInvoice.length > 0) {
+          //   const lastNumber = latestInvoice[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+
+          // // Combine prefix + counter
+          // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("invoices").select("number");
 
           if (fetchError) {
-            return res.status(500).json({ error: true, message: "Failed to fetch latest invoice number: " + fetchError.message });
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch invoice numbers: " + fetchError.message,
+            });
           }
 
-          // Determine the next counter based on latest request
-          let counter = 1;
-          if (latestInvoice && latestInvoice.length > 0) {
-            const lastNumber = latestInvoice[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
-          }
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
 
-          // Combine prefix + counter
-          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The invoice number "${inputNumber}" has already been used. Please enter a new and unique invoice number that has not been used before.`,
+            });
+          }
 
           // Update items with total_per_item
           const updatedItems = items.map((item) => {
@@ -259,7 +314,8 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              number: nextNumber,
+              // number: nextNumber,
+              number,
               approver,
               due_date,
               status,
@@ -318,8 +374,40 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, date, discount_terms, expiry_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let { type, number, date, discount_terms, expiry_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -384,36 +472,59 @@ module.exports = async (req, res) => {
             });
           }
 
-          const requestDate = new Date(date);
-          const month = requestDate.getMonth() + 1; // 0-based
-          const year = requestDate.getFullYear();
+          // const requestDate = new Date(date);
+          // const month = requestDate.getMonth() + 1; // 0-based
+          // const year = requestDate.getFullYear();
 
-          // Generate prefix for this month: YYYYMM
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate prefix for this month: YYYYMM
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          // Fetch latest offer number
-          const { data: latestOffer, error: fetchError } = await supabase
-            .from("offers")
-            .select("number")
-            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // // Fetch latest offer number
+          // const { data: latestOffer, error: fetchError } = await supabase
+          //   .from("offers")
+          //   .select("number")
+          //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({ error: true, message: "Failed to fetch latest offer number: " + fetchError.message });
+          // }
+
+          // // Determine the next counter based on latest request
+          // let counter = 1;
+          // if (latestOffer && latestOffer.length > 0) {
+          //   const lastNumber = latestOffer[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+
+          // // Combine prefix + counter
+          // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("offers").select("number");
 
           if (fetchError) {
-            return res.status(500).json({ error: true, message: "Failed to fetch latest offer number: " + fetchError.message });
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch offer numbers: " + fetchError.message,
+            });
           }
 
-          // Determine the next counter based on latest request
-          let counter = 1;
-          if (latestOffer && latestOffer.length > 0) {
-            const lastNumber = latestOffer[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
-          }
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
 
-          // Combine prefix + counter
-          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The offer number "${inputNumber}" has already been used. Please enter a new and unique offer number that has not been used before.`,
+            });
+          }
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
@@ -434,7 +545,8 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              number: nextNumber,
+              // number: nextNumber,
+              number,
               discount_terms,
               expiry_date,
               due_date,
@@ -487,8 +599,40 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, date, orders_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let { type, number, date, orders_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -553,35 +697,58 @@ module.exports = async (req, res) => {
             });
           }
 
-          const requestDate = new Date(date);
-          const month = requestDate.getMonth() + 1; // 0-based
-          const year = requestDate.getFullYear();
+          // const requestDate = new Date(date);
+          // const month = requestDate.getMonth() + 1; // 0-based
+          // const year = requestDate.getFullYear();
 
-          // Generate prefix for this month: YYYYMM
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate prefix for this month: YYYYMM
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          // Fetch latest order number
-          const { data: latestOrder, error: fetchError } = await supabase
-            .from("orders")
-            .select("number")
-            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // // Fetch latest order number
+          // const { data: latestOrder, error: fetchError } = await supabase
+          //   .from("orders")
+          //   .select("number")
+          //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({ error: true, message: "Failed to fetch latest order number: " + fetchError.message });
+          // }
+
+          // // Determine the next counter based on latest request
+          // let counter = 1;
+          // if (latestOrder && latestOrder.length > 0) {
+          //   const lastNumber = latestOrder[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+          // // Combine prefix + counter
+          // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("orders").select("number");
 
           if (fetchError) {
-            return res.status(500).json({ error: true, message: "Failed to fetch latest order number: " + fetchError.message });
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch order numbers: " + fetchError.message,
+            });
           }
 
-          // Determine the next counter based on latest request
-          let counter = 1;
-          if (latestOrder && latestOrder.length > 0) {
-            const lastNumber = latestOrder[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
+
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The order number "${inputNumber}" has already been used. Please enter a new and unique order number that has not been used before.`,
+            });
           }
-          // Combine prefix + counter
-          const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
@@ -602,7 +769,8 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              number: nextNumber,
+              // number: nextNumber,
+              number,
               orders_date,
               due_date,
               status,
@@ -654,8 +822,40 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let { type, number, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -720,36 +920,59 @@ module.exports = async (req, res) => {
             });
           }
 
-          const requestDate = new Date(date);
-          const month = requestDate.getMonth() + 1; // 0-based
-          const year = requestDate.getFullYear();
+          // const requestDate = new Date(date);
+          // const month = requestDate.getMonth() + 1; // 0-based
+          // const year = requestDate.getFullYear();
 
-          // Generate prefix for this month: YYYYMM
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate prefix for this month: YYYYMM
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          // Fetch latest request number for the same prefix
-          const { data: latestRequests, error: fetchError } = await supabase
-            .from("requests")
-            .select("number")
-            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // // Fetch latest request number for the same prefix
+          // const { data: latestRequests, error: fetchError } = await supabase
+          //   .from("requests")
+          //   .select("number")
+          //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({ error: true, message: "Failed to fetch latest request number: " + fetchError.message });
+          // }
+
+          // // Determine the next counter based on latest request
+          // let counter = 1;
+          // if (latestRequests && latestRequests.length > 0) {
+          //   const lastNumber = latestRequests[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+
+          // // Combine prefix + counter
+          // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("requests").select("number");
 
           if (fetchError) {
-            return res.status(500).json({ error: true, message: "Failed to fetch latest request number: " + fetchError.message });
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch request numbers: " + fetchError.message,
+            });
           }
 
-          // Determine the next counter based on latest request
-          let counter = 1;
-          if (latestRequests && latestRequests.length > 0) {
-            const lastNumber = latestRequests[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
-          }
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
 
-          // Combine prefix + counter
-          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The request number "${inputNumber}" has already been used. Please enter a new and unique request number that has not been used before.`,
+            });
+          }
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
@@ -770,7 +993,8 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              number: nextNumber,
+              // number: nextNumber,
+              number,
               requested_by,
               urgency,
               due_date,
@@ -823,8 +1047,40 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
-          let { type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let { type, number, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -889,36 +1145,59 @@ module.exports = async (req, res) => {
             });
           }
 
-          const requestDate = new Date(date);
-          const month = requestDate.getMonth() + 1; // 0-based
-          const year = requestDate.getFullYear();
+          // const requestDate = new Date(date);
+          // const month = requestDate.getMonth() + 1; // 0-based
+          // const year = requestDate.getFullYear();
 
-          // Generate prefix for this month: YYYYMM
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate prefix for this month: YYYYMM
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          // Fetch latest shipment number
-          const { data: latestShipment, error: fetchError } = await supabase
-            .from("shipments")
-            .select("number")
-            .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // // Fetch latest shipment number
+          // const { data: latestShipment, error: fetchError } = await supabase
+          //   .from("shipments")
+          //   .select("number")
+          //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({ error: true, message: "Failed to fetch latest shipment number: " + fetchError.message });
+          // }
+
+          // // Determine the next counter based on latest request
+          // let counter = 1;
+          // if (latestShipment && latestShipment.length > 0) {
+          //   const lastNumber = latestShipment[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+
+          // // Combine prefix + counter
+          // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("shipments").select("number");
 
           if (fetchError) {
-            return res.status(500).json({ error: true, message: "Failed to fetch latest shipment number: " + fetchError.message });
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch shipment numbers: " + fetchError.message,
+            });
           }
 
-          // Determine the next counter based on latest request
-          let counter = 1;
-          if (latestShipment && latestShipment.length > 0) {
-            const lastNumber = latestShipment[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
-          }
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
 
-          // Combine prefix + counter
-          const nextNumber = parseInt(`${prefix}${counter}`, 10);
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The shipment number "${inputNumber}" has already been used. Please enter a new and unique shipment number that has not been used before.`,
+            });
+          }
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
@@ -939,7 +1218,8 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              number: nextNumber,
+              // number: nextNumber,
+              number,
               tracking_number,
               carrier,
               shipping_date,
@@ -1004,9 +1284,15 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check if the user role is among those permitted
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
         const allowedRoles = ["purchasing", "admin"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
           return res.status(403).json({
             error: true,
             message: "Access denied. You are not authorized to perform this action.",
@@ -1014,7 +1300,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { type, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, vendor_address, vendor_phone, start_date } = req.body;
+          let { type, number, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, vendor_address, vendor_phone, start_date } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1076,35 +1362,58 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
-          // Generate quotation number
-          const quoteDate = new Date(quotation_date);
-          const month = quoteDate.getMonth() + 1;
-          const year = quoteDate.getFullYear();
-          const prefix = `${year}${String(month).padStart(2, "0")}`;
+          // // Generate quotation number
+          // const quoteDate = new Date(quotation_date);
+          // const month = quoteDate.getMonth() + 1;
+          // const year = quoteDate.getFullYear();
+          // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
-          const { data: latestQuote, error: fetchError } = await supabase
-            .from("quotations_purchases")
-            .select("number")
-            .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
-            .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-            .order("number", { ascending: false })
-            .limit(1);
+          // const { data: latestQuote, error: fetchError } = await supabase
+          //   .from("quotations_purchases")
+          //   .select("number")
+          //   .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
+          //   .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
+          //   .order("number", { ascending: false })
+          //   .limit(1);
+
+          // if (fetchError) {
+          //   return res.status(500).json({
+          //     error: true,
+          //     message: "Failed to fetch latest quotation number: " + fetchError.message,
+          //   });
+          // }
+
+          // let counter = 1;
+          // if (latestQuote && latestQuote.length > 0) {
+          //   const lastNumber = latestQuote[0].number.toString();
+          //   const lastCounter = parseInt(lastNumber.slice(6), 10);
+          //   counter = lastCounter + 1;
+          // }
+
+          // const nextQuotationNumber = parseInt(`${prefix}${counter}`, 10);
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("quotations_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
               error: true,
-              message: "Failed to fetch latest quotation number: " + fetchError.message,
+              message: "Failed to fetch quotation numbers: " + fetchError.message,
             });
           }
 
-          let counter = 1;
-          if (latestQuote && latestQuote.length > 0) {
-            const lastNumber = latestQuote[0].number.toString();
-            const lastCounter = parseInt(lastNumber.slice(6), 10);
-            counter = lastCounter + 1;
-          }
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
 
-          const nextQuotationNumber = parseInt(`${prefix}${counter}`, 10);
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The quotation number "${inputNumber}" has already been used. Please enter a new and unique quotation number that has not been used before.`,
+            });
+          }
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
@@ -1120,7 +1429,8 @@ module.exports = async (req, res) => {
           const { error: insertError } = await supabase.from("quotations_purchases").insert([
             {
               user_id: user.id,
-              number: nextQuotationNumber,
+              // number: nextQuotationNumber,
+              number,
               vendor_name,
               quotation_date,
               valid_until,
@@ -1179,6 +1489,38 @@ module.exports = async (req, res) => {
 
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
         }
 
         try {
@@ -1362,6 +1704,38 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
           const { id, type, date, discount_terms, expiry_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
 
@@ -1444,6 +1818,16 @@ module.exports = async (req, res) => {
             return res.status(400).json({
               error: true,
               message: "Offer ID is required",
+            });
+          }
+
+          // Check if offer exists and belongs to user
+          const { data: existingOffer, error: fetchError } = await supabase.from("offers").select("*").eq("id", id).single();
+
+          if (fetchError || !existingOffer) {
+            return res.status(404).json({
+              error: true,
+              message: "Offer not found or unauthorized",
             });
           }
 
@@ -1541,6 +1925,38 @@ module.exports = async (req, res) => {
 
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
         }
 
         try {
@@ -1712,6 +2128,38 @@ module.exports = async (req, res) => {
 
         if (userError || !user) {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
         }
 
         try {
@@ -1887,6 +2335,38 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
           const { id, type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
 
@@ -2058,6 +2538,38 @@ module.exports = async (req, res) => {
           return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["purchasing", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
         try {
           const {
             id,
@@ -2175,13 +2687,12 @@ module.exports = async (req, res) => {
           const { error: updateError } = await supabase
             .from("quotations_purchases")
             .update({
-              customer_name,
               quotation_date,
               valid_until,
               status,
               terms,
               items: updatedItems,
-              total,
+              // total,
               memo,
               type,
               tax_details,
@@ -2190,7 +2701,7 @@ module.exports = async (req, res) => {
               vendor_name,
               grand_total,
               due_date,
-              tags,
+              tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
               tax_method,
               dpp,
               ppn,
@@ -2795,6 +3306,67 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: formattedData });
       }
 
+      // Get Approval Request Endpoint
+      case "getApprovalRequest": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval Request.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        let query = supabase.from("requests").select("*").eq("status", "Pending");
+        query = query.order("date", { ascending: false }).limit(limit);
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
       // Get Approval Quotation Endpoint
       case "getApprovalQuotation": {
         if (method !== "GET") {
@@ -2856,14 +3428,16 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: formattedData });
       }
 
-      // Reject Request Endpoint
-      case "rejectRequest": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectRequest." });
+      // Approval Shipment Endpoint
+      case "sendShipmentToInvoice": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendShipmentToInvoice." });
         }
 
         const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
 
         const token = authHeader.split(" ")[1];
         const supabase = getSupabaseWithToken(token);
@@ -2872,39 +3446,268 @@ module.exports = async (req, res) => {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
-        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        // // Get user roles from database (e.g. 'profiles' or 'users' table)
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Check if the user role is among those permitted
-        // const allowedRoles = ["procurement", "manager", "admin"];
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Access denied. You are not authorized to perform this action.",
-        //   });
-        // }
-
-        const { id } = req.body;
-        if (!id) return res.status(400).json({ error: true, message: "Request ID is required" });
-
-        const { data, error } = await supabase.from("requests").update({ status: "Cancelled" }).eq("id", id).select();
-
-        if (error) return res.status(500).json({ error: true, message: "Failed to reject request: " + error.message });
-
-        if (!data || data.length === 0) {
-          return res.status(404).json({ error: true, message: "Request not found with the given ID" });
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
         }
 
-        return res.status(200).json({ error: false, message: "Request rejected successfully" });
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Shipment ID" });
+        }
+
+        // 1. Get shipment with status "Pending"
+        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !shipment) {
+          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
+        }
+
+        const shipmentId = String(id);
+
+        // 2. Update the shipment status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Completed" }).eq("id", shipmentId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
+        }
+
+        // // 3. Generate new invoice number (similar with addNewInvoice endpoint)
+        // const shipmentDate = new Date(shipment.date);
+        // const shipmentMonth = shipmentDate.getMonth() + 1;
+        // const shipmentYear = shipmentDate.getFullYear();
+        // const prefix = `${shipmentYear}${String(shipmentMonth).padStart(2, "0")}`;
+        // const prefixInt = parseInt(prefix + "0", 10);
+        // const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        // const { data: latestInvoice, error: invoiceError } = await supabase.from("invoices").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        // if (invoiceError) {
+        //   return res.status(500).json({
+        //     error: true,
+        //     message: "Failed to create invoice from shipment: " + invoiceError.message,
+        //   });
+        // }
+
+        // let counter = 1;
+        // if (latestInvoice && latestInvoice.length > 0) {
+        //   const lastNumber = latestInvoice[0].number.toString();
+        //   const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+        //   counter = lastCounter + 1;
+        // }
+
+        // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 4. Calculate again the grand total (optional)
+        const updatedItems = shipment.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        // 5. Insert to invoices
+        const { error: insertError } = await supabase.from("invoices").insert([
+          {
+            user_id: user.id,
+            type: "Invoice",
+            date: shipment.date,
+            // number: nextNumber,
+            number: shipment.number,
+            approver: "",
+            due_date: shipment.due_date,
+            status: "Pending",
+            tax_calculation_method: true,
+            tags: shipment.tags,
+            items: updatedItems,
+            grand_total: shipment.grand_total,
+            memo: shipment.memo,
+            attachment_url: shipment.attachment_url,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert invoice: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Invoice created from shipment successfully" });
+      }
+
+      // Approval Shipment Endpoint
+      case "sendShipmentToInvoice": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendShipmentToInvoice." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Shipment ID" });
+        }
+
+        // 1. Get shipment with status "Pending"
+        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !shipment) {
+          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
+        }
+
+        const shipmentId = String(id);
+
+        // 2. Update the shipment status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Completed" }).eq("id", shipmentId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
+        }
+
+        // // 3. Generate new invoice number (similar with addNewInvoice endpoint)
+        // const shipmentDate = new Date(shipment.date);
+        // const shipmentMonth = shipmentDate.getMonth() + 1;
+        // const shipmentYear = shipmentDate.getFullYear();
+        // const prefix = `${shipmentYear}${String(shipmentMonth).padStart(2, "0")}`;
+        // const prefixInt = parseInt(prefix + "0", 10);
+        // const nextPrefixInt = parseInt(prefix + "9999", 10);
+
+        // const { data: latestInvoice, error: invoiceError } = await supabase.from("invoices").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+
+        // if (invoiceError) {
+        //   return res.status(500).json({
+        //     error: true,
+        //     message: "Failed to create invoice from shipment: " + invoiceError.message,
+        //   });
+        // }
+
+        // let counter = 1;
+        // if (latestInvoice && latestInvoice.length > 0) {
+        //   const lastNumber = latestInvoice[0].number.toString();
+        //   const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+        //   counter = lastCounter + 1;
+        // }
+
+        // const nextNumber = parseInt(`${prefix}${counter}`, 10);
+
+        // 4. Calculate again the grand total (optional)
+        const updatedItems = shipment.items.map((item) => {
+          const qty = Number(item.qty) || 0;
+          const unit_price = Number(item.price) || 0;
+          return {
+            ...item,
+            total_per_item: qty * unit_price,
+          };
+        });
+
+        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+
+        // 5. Insert to invoices
+        const { error: insertError } = await supabase.from("invoices").insert([
+          {
+            user_id: user.id,
+            type: "Invoice",
+            date: shipment.date,
+            // number: nextNumber,
+            number: shipment.number,
+            approver: "",
+            due_date: shipment.due_date,
+            status: "Pending",
+            tax_calculation_method: true,
+            tags: shipment.tags,
+            items: updatedItems,
+            grand_total: shipment.grand_total,
+            memo: shipment.memo,
+            attachment_url: shipment.attachment_url,
+          },
+        ]);
+
+        if (insertError) {
+          return res.status(500).json({ error: true, message: "Failed to insert invoice: " + insertError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Invoice created from shipment successfully" });
       }
 
       // Approval Request Endpoint
@@ -2940,9 +3743,22 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check if the user role is among those permitted
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
         const allowedRoles = ["procurement"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
           return res.status(403).json({
             error: true,
             message: "Access denied. You are not authorized to perform this action.",
@@ -3014,10 +3830,9 @@ module.exports = async (req, res) => {
             user_id: user.id,
             type: "Order",
             date: request.date,
-            number: nextNumber,
-            requested_by: "",
-            urgency: "Low",
-            orders_date: "",
+            // number: nextNumber,
+            number: request.number,
+            orders_date: request.date,
             due_date: request.due_date,
             status: "Pending",
             tags: request.tags,
@@ -3195,9 +4010,22 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check if the user role is among those permitted
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
         const allowedRoles = ["procurement"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
           return res.status(403).json({
             error: true,
             message: "Access denied. You are not authorized to perform this action.",
@@ -3225,31 +4053,31 @@ module.exports = async (req, res) => {
           return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
         }
 
-        // 3. Generate new offer number (similar with addNewOffer endpoint)
-        const quotationDate = new Date(quotation.quotation_date);
-        const quotationMonth = quotationDate.getMonth() + 1;
-        const quotationYear = quotationDate.getFullYear();
-        const prefix = `${quotationYear}${String(quotationMonth).padStart(2, "0")}`;
-        const prefixInt = parseInt(prefix + "0", 10);
-        const nextPrefixInt = parseInt(prefix + "9999", 10);
+        // // 3. Generate new offer number (similar with addNewOffer endpoint)
+        // const quotationDate = new Date(quotation.quotation_date);
+        // const quotationMonth = quotationDate.getMonth() + 1;
+        // const quotationYear = quotationDate.getFullYear();
+        // const prefix = `${quotationYear}${String(quotationMonth).padStart(2, "0")}`;
+        // const prefixInt = parseInt(prefix + "0", 10);
+        // const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
-        if (offerError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to create offer from quotation: " + offerError.message,
-          });
-        }
+        // if (offerError) {
+        //   return res.status(500).json({
+        //     error: true,
+        //     message: "Failed to create offer from quotation: " + offerError.message,
+        //   });
+        // }
 
-        let counter = 1;
-        if (latestOffer && latestOffer.length > 0) {
-          const lastNumber = latestOffer[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
-        }
+        // let counter = 1;
+        // if (latestOffer && latestOffer.length > 0) {
+        //   const lastNumber = latestOffer[0].number.toString();
+        //   const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+        //   counter = lastCounter + 1;
+        // }
 
-        const nextNumber = parseInt(`${prefix}${counter}`, 10);
+        // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
         // 4. Calculate again the grand total (optional)
         const updatedItems = quotation.items.map((item) => {
@@ -3269,7 +4097,8 @@ module.exports = async (req, res) => {
             user_id: user.id,
             type: "Offer",
             date: quotation.quotation_date,
-            number: nextNumber,
+            // number: nextNumber,
+            number: quotation.number,
             discount_terms: null,
             expiry_date: null,
             due_date: quotation.due_date,
@@ -3289,10 +4118,10 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Offer created from quotation successfully" });
       }
 
-      // Reject Quotation Endpoint
-      case "rejectQuotation": {
+      // Reject Invoice Endpoint
+      case "rejectInvoice": {
         if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectQuotation." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectInvoice." });
         }
 
         const authHeader = req.headers.authorization;
@@ -3322,9 +4151,22 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check if the user role is among those permitted
-        const allowedRoles = ["procurement", "admin"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
           return res.status(403).json({
             error: true,
             message: "Access denied. You are not authorized to perform this action.",
@@ -3333,26 +4175,105 @@ module.exports = async (req, res) => {
 
         const { id } = req.body;
         if (!id) {
-          return res.status(400).json({ error: true, message: "Missing Request ID" });
+          return res.status(400).json({ error: true, message: "Missing Invoice ID" });
         }
 
-        // 1. Get quotation with status "Pending"
-        const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
+        // 1. Get invoices with status "Pending"
+        const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).ilike("status", "pending").single();
 
-        if (fetchError || !quotation) {
-          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+        if (fetchError || !invoice) {
+          return res.status(404).json({ error: true, message: "Invoice not found or already completed/cancelled" });
         }
 
-        const quotationId = String(id);
+        const invoiceId = String(id);
 
-        // 2. Update the quotation status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Rejected" }).eq("id", quotationId).select();
+        // 2. Update the invoice status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("invoices").update({ status: "Rejected" }).eq("id", invoiceId).select();
 
         if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+          return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
         }
 
-        return res.status(201).json({ error: false, message: "Quotation has been rejected successfully" });
+        return res.status(201).json({ error: false, message: "Invoice has been rejected successfully" });
+      }
+
+      // Reject Shipment Endpoint
+      case "rejectShipment": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectShipment." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Shipment ID" });
+        }
+
+        // 1. Get shipments with status "Pending"
+        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !shipment) {
+          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
+        }
+
+        const shipmentId = String(id);
+
+        // 2. Update the shipment status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Rejected" }).eq("id", shipmentId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Shipment has been rejected successfully" });
       }
 
       // Reject Request Endpoint
@@ -3388,9 +4309,22 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check if the user role is among those permitted
-        const allowedRoles = ["procurement", "admin"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
           return res.status(403).json({
             error: true,
             message: "Access denied. You are not authorized to perform this action.",
@@ -3419,6 +4353,85 @@ module.exports = async (req, res) => {
         }
 
         return res.status(201).json({ error: false, message: "Request has been rejected successfully" });
+      }
+
+      // Reject Quotation Endpoint
+      case "rejectQuotation": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectQuotation." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Request ID" });
+        }
+
+        // 1. Get quotation with status "Pending"
+        const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !quotation) {
+          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+        }
+
+        const quotationId = String(id);
+
+        // 2. Update the quotation status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Rejected" }).eq("id", quotationId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Quotation has been rejected successfully" });
       }
 
       //   Get Overdue Endpoint
