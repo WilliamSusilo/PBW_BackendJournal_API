@@ -45,6 +45,10 @@ function runMiddleware(req, res, fn) {
   });
 }
 
+function isUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 module.exports = async (req, res) => {
   await runMiddleware(req, res, cors);
 
@@ -112,6 +116,186 @@ module.exports = async (req, res) => {
       // >>>>>>>>>>>>>>>>>  NEW ENDPOINT FOR INPUT FILE  <<<<<<<<<<<<<
       // =============================================================
 
+      // Add Billing Endpoint
+      case "addNewBilling": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addBilling." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        try {
+          let { vendor_name, invoice_date, terms, grand_total, items: itemsRaw, payment_method, payment_COA, vendor_COA, type, number, status, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesBillings/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!vendor_name || !invoice_date || !terms || !grand_total || !itemsRaw || !payment_method || !payment_COA || !vendor_COA || !type || !number || !status || !memo) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("billing_summary").select("number");
+
+          if (fetchError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch billing summary numbers: " + fetchError.message,
+            });
+          }
+
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
+
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The billing summary number "${inputNumber}" has already been used. Please enter a new and unique billing summary number that has not been used before.`,
+            });
+          }
+
+          const { error } = await supabase.from("billing_summary").insert([
+            {
+              user_id: user.id,
+              vendor_name,
+              invoice_date,
+              terms,
+              grand_total,
+              items: itemsRaw,
+              payment_method,
+              payment_COA,
+              vendor_COA,
+              type,
+              number,
+              status,
+              memo,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create billing summary: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Billing summary created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
       // Add Invoice Endpoint
       case "addNewInvoice": {
         if (method !== "POST") {
@@ -169,7 +353,29 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { type, number, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, grand_total, memo } = req.body;
+          let {
+            type,
+            number,
+            date,
+            approver,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            tax_calculation_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            grand_total,
+            memo,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            terms,
+            freight_in,
+            insurance,
+            vendor_COA,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -331,6 +537,13 @@ module.exports = async (req, res) => {
               grand_total,
               memo,
               attachment_url: attachment_urls || null,
+              vendor_name,
+              vendor_address,
+              vendor_phone,
+              terms,
+              freight_in,
+              insurance,
+              vendor_COA,
             },
           ]);
 
@@ -1249,6 +1462,7 @@ module.exports = async (req, res) => {
         }
       }
 
+      // Add Quotation Endpoint
       case "addNewQuotation": {
         if (method !== "POST") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addNewQuotation." });
@@ -1467,6 +1681,194 @@ module.exports = async (req, res) => {
         }
       }
 
+      // Edit Billing Endpoint
+      case "editNewBilling": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editBilling." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        try {
+          const { id, vendor_name, invoice_date, terms, grand_total, items: itemsRaw, payment_method, payment_COA, vendor_COA, type, number, status, memo } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesBillings/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Billing ID is required",
+            });
+          }
+
+          // Check if billing exists and belongs to user
+          const { data: existingBilling, error: fetchError } = await supabase.from("billing_summary").select("*").eq("id", id).single();
+
+          if (fetchError || !existingBilling) {
+            return res.status(404).json({
+              error: true,
+              message: "Billing not found or unauthorized",
+            });
+          }
+
+          // Prepare update data
+          const updateData = {
+            vendor_name,
+            invoice_date,
+            terms,
+            grand_total,
+            items: itemsRaw,
+            payment_method,
+            payment_COA,
+            vendor_COA,
+            type,
+            number,
+            status,
+            memo,
+            attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update billing
+          const { error: updateError } = await supabase.from("billing_summary").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update billing: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Billing updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
       // Edit Invoice Endpoint
       case "editNewInvoice": {
         if (method !== "PATCH") {
@@ -1524,7 +1926,29 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, type, date, approver, due_date, status, tags, items: itemsRaw, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, memo, filesToDelete } = req.body;
+          const {
+            id,
+            type,
+            date,
+            approver,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            tax_calculation_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            memo,
+            filesToDelete,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            terms,
+            freight_in,
+            insurance,
+            vendor_COA,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1658,6 +2082,13 @@ module.exports = async (req, res) => {
             grand_total,
             memo,
             attachment_url: newAttachmentUrls || null,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            terms,
+            freight_in,
+            insurance,
+            vendor_COA,
             updated_at: new Date().toISOString(),
           };
 
@@ -2722,7 +3153,8 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Delete Invoice, Shipment, Order, Offer, and Request Endpoint
+      // Delete Billing Summary, Invoice, Shipment, Order, Offer, and Request Endpoint
+      case "deleteBilling":
       case "deleteInvoice":
       case "deleteShipment":
       case "deleteOrder":
@@ -2792,6 +3224,7 @@ module.exports = async (req, res) => {
         // }
 
         const tableMap = {
+          deleteBilling: "billing_summary",
           deleteInvoice: "invoices",
           deleteShipment: "shipments",
           deleteOrder: "orders",
@@ -2832,6 +3265,101 @@ module.exports = async (req, res) => {
           error: false,
           message: `${action} deleted successfully`,
         });
+      }
+
+      // Get Billing Endpoint
+      case "getBilling": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "finance", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("billing_summary").select("*").order("invoice_date", { ascending: false }).range(from, to);
+
+        if (status) query = query.eq("status", status);
+
+        if (search) {
+          const stringColumns = ["vendor_name"];
+          const numericColumns = ["grand_total"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^BIL-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch billing summary: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"BIL"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
       }
 
       // Get Invoice Endpoint
@@ -2888,33 +3416,38 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["approver"];
+          const stringColumns = ["approver", "id"];
           const numericColumns = ["grand_total"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^INV-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              const value = parseFloat(search);
+              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            }
+
+            const codeMatch = search.match(/^INV-?0*(\d{5,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -2923,7 +3456,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"INV"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -2985,31 +3518,36 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["tracking_number", "carrier"];
           const numericColumns = ["grand_total"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^SH-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              const value = parseFloat(search);
+              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            }
+
+            const codeMatch = search.match(/^SH-?0*(\d{5,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -3018,7 +3556,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"SH"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3079,29 +3617,34 @@ module.exports = async (req, res) => {
 
         if (search) {
           const numericColumns = ["grand_total"];
+          const uuidColumns = ["id"];
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^ORD-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              const value = parseFloat(search);
+              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            }
+
+            const codeMatch = search.match(/^ORD-?0*(\d{5,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -3110,7 +3653,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"ORD"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3172,31 +3715,36 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["discount_terms"];
           const numericColumns = ["grand_total"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^OFR-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              const value = parseFloat(search);
+              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            }
+
+            const codeMatch = search.match(/^OFR-?0*(\d{5,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -3205,7 +3753,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"OFR"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3267,31 +3815,36 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["requested_by", "urgency"];
           const numericColumns = ["grand_total"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            const value = parseFloat(search);
-            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-          }
-
-          const codeMatch = search.match(/^REQ-?0*(\d{5,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              const value = parseFloat(search);
+              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            }
+
+            const codeMatch = search.match(/^REQ-?0*(\d{5,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -3300,7 +3853,129 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Approval Invoice Endpoint
+      case "getApprovalInvoice": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval Invoice.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        let query = supabase.from("invoices").select("*").eq("status", "Pending");
+        query = query.order("date", { ascending: false }).limit(limit);
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"INV"}-${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Approval Shipment Endpoint
+      case "getApprovalShipment": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval Shipment.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        let query = supabase.from("shipments").select("*").eq("status", "Pending");
+        query = query.order("date", { ascending: false }).limit(limit);
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${"SH"}-${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3412,7 +4087,7 @@ module.exports = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
 
         let query = supabase.from("quotations_purchases").select("*").eq("status", "Pending");
-        query = query.order("date", { ascending: false }).limit(limit);
+        query = query.order("quotation_date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
 
@@ -3426,6 +4101,479 @@ module.exports = async (req, res) => {
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Approval Billing Payment Invoices Endpoint
+      case "sendBillingToCOA": {
+        if (method !== "POST") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use POST for sendBillingToCOA.",
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        // Get user
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user role
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Billing ID" });
+        }
+        const billingId = String(id);
+
+        const { data: billing, error: billingError } = await supabase
+          .from("billing_summary")
+          .select("items, grand_total, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number")
+          .eq("id", id)
+          .ilike("status", "pending")
+          .single();
+
+        if (billingError || !billing) {
+          return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
+        }
+
+        const { items, grand_total, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number } = billing;
+
+        // Buat journal entry utama
+        const { data: journal, error: journalError } = await supabase
+          .from("journal_entries")
+          .insert({
+            id: billingId,
+            invoice_number: `INV-${number}`,
+            description: `Journal for Billing ${billingId}`,
+            user_id: user.id,
+            entry_date: new Date().toISOString().split("T")[0],
+            created_at: new Date(),
+          })
+          .select()
+          .single();
+
+        if (journalError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create journal entry: " + journalError.message,
+          });
+        }
+
+        // ====== Initialize Journal Line Entries and Totals ======
+        const lineEntries = [];
+        let totalInventory = 0;
+
+        let discountPayment = 0;
+        // let penaltyPayment = 0;
+        let alerts = []; // Store alert messages for user
+
+        // ====== Global Discount / Penalty Calculation ======
+        if (terms) {
+          // Example: "2/10, n/30"
+          const match = billing.terms.match(/(\d+)\/(\d+),\s*n\/(\d+)/);
+          if (match) {
+            const discountRate = parseFloat(match[1]); // e.g., 2 (%)
+            const discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
+            const netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
+
+            const paymentDateObj = new Date(payment_date);
+            const dueDateObj = new Date(due_date);
+            const invoiceDateObj = new Date(billing.invoice_date);
+
+            const diffDiscountDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
+            const diffDueDays = Math.ceil((dueDateObj - paymentDateObj) / (1000 * 60 * 60 * 24));
+
+            // ====== Discount eligibility ======
+            if (diffDiscountDays <= discountDays) {
+              discountPayment = (grand_total * discountRate) / 100;
+              alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDiscountDays} days left to claim it.`);
+            } else if (paymentDateObj > dueDateObj) {
+              // Example penalty = 5%
+              // penaltyPayment = (grand_total * 5) / 100;
+              alerts.push("Warning: Payment is past due date. Penalty may apply.");
+            }
+
+            // ====== General due date alert ======
+            if (diffDueDays > 0) {
+              alerts.push(`You have ${diffDueDays} days left before the due date (n/${netDays}).`);
+            } else {
+              alerts.push("Invoice is already overdue!");
+            }
+          }
+        }
+
+        // ====== Prepaid Installment Alerts ======
+        if (prepaid_count) {
+          if (prepaid_count === 3) {
+            alerts.push("Installment 1: Check remaining days for discount eligibility.");
+            alerts.push("Installment 3: Check remaining days for discount eligibility.");
+          } else if (prepaid_count === 2) {
+            alerts.push("Installment 1: Check remaining days for discount eligibility.");
+          }
+        }
+
+        // ====== Total Qty Calculation (for proportional discount/penalty allocation) ======
+        const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+
+        // ====== Loop Items (allocate discount proportionally to inventory) ======
+        for (const item of items) {
+          const { coa, qty } = item;
+          const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
+          totalInventory += itemDiscount;
+        }
+
+        // ====== Journal Entries: Full Payment ======
+        if (payment_method === "Full Payment") {
+          // Debit Vendor
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: vendor_COA,
+            description: vendor_name,
+            debit: grand_total,
+            credit: 0,
+            user_id: user.id,
+          });
+
+          // Credit Cash & Bank
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: payment_COA,
+            description: "Cash & Bank",
+            debit: 0,
+            credit: grand_total,
+            user_id: user.id,
+          });
+        }
+
+        // ====== Journal Entries: Partial Payment ======
+        else if (payment_method === "Partial Payment") {
+          // Example: partialAmount is the actual paid amount
+          const partialAmount = paid_amount || 0;
+
+          if (partialAmount > 0) {
+            // Debit Vendor
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: vendor_COA,
+              description: `${vendor_name} (Partial Payment)`,
+              debit: partialAmount,
+              credit: 0,
+              user_id: user.id,
+            });
+
+            // Credit Cash & Bank
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: payment_COA,
+              description: "Cash & Bank (Partial Payment)",
+              debit: 0,
+              credit: partialAmount,
+              user_id: user.id,
+            });
+
+            alerts.push(`Partial payment of ${partialAmount} has been recorded. Remaining balance = ${grand_total - partialAmount}.`);
+          } else {
+            alerts.push("Warning: Partial payment amount is missing or zero.");
+          }
+        }
+
+        // ====== Journal Entries: Discount Payment Allocation ======
+        if (discountPayment > 0) {
+          // Debit Cash & Bank
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: payment_COA,
+            description: "Cash & Bank (Discount Allocation)",
+            debit: discountPayment,
+            credit: 0,
+            user_id: user.id,
+          });
+
+          // Credit allocation to Inventory (proportional per item)
+          for (const item of items) {
+            const itemDisc = (discountPayment / totalQty) * item.qty;
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: item.coa,
+              description: `Inventory - ${item.item_name} (Discount Allocation)`,
+              debit: 0,
+              credit: itemDisc,
+              user_id: user.id,
+            });
+          }
+        }
+
+        // ====== Kalau ada Penalty ======
+        // if (penaltyPayment > 0) {
+        //   // Debit alokasi ke setiap Inventory item
+        //   for (const item of items) {
+        //     const itemPen = (penaltyPayment / totalQty) * item.qty;
+        //     lineEntries.push({
+        //       journal_entry_id: journal.id,
+        //       account_code: item.coa,
+        //       description: `Penalty Allocation - ${item.item_name}`,
+        //       debit: itemPen,
+        //       credit: 0,
+        //       user_id: user.id,
+        //     });
+        //   }
+
+        //   // Kredit ke Cash & Bank
+        //   lineEntries.push({
+        //     journal_entry_id: journal.id,
+        //     account_code: payment_COA,
+        //     description: "Cash & Bank (Penalty)",
+        //     debit: 0,
+        //     credit: penaltyPayment,
+        //     user_id: user.id,
+        //   });
+        // }
+
+        // Insert ke Supabase
+        const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
+
+        if (insertError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to insert journal lines: " + insertError.message,
+          });
+        }
+
+        // const { data: current, error: fetchError } = await supabase.from("billing_summary").select("grand_total").eq("id", billingId).single();
+
+        // if (fetchError) throw fetchError;
+
+        // const newGrandTotal = current.grand_total - discountPayment;
+
+        // const { data, error } = await supabase
+        //   .from("billing_summary")
+        //   .update({
+        //     status: "Completed",
+        //     grand_total: newGrandTotal,
+        //   })
+        //   .eq("id", billingId)
+        //   .select();
+
+        return res.status(201).json({
+          error: false,
+          message: "Journal Entries created successfully",
+          data: {
+            journal,
+            lines: lineEntries,
+          },
+        });
+      }
+
+      // Approval Invoice Endpoint
+      case "sendInvoiceToCOA": {
+        if (method !== "POST") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use POST for sendInvoiceToCOA.",
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        // Get user
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user role
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        // Ambil invoice ID
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Invoice ID" });
+        }
+        const invoiceId = String(id);
+
+        // 1. Ambil invoice dari DB
+        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number").eq("id", id).ilike("status", "pending").single();
+
+        if (invoiceError || !invoice) {
+          return res.status(404).json({ error: true, message: "Invoice not found or already completed/cancelled" });
+        }
+
+        const { items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number } = invoice;
+
+        // 2. Hitung total qty semua item
+        const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+        console.log(totalQty);
+
+        const freightShare = totalQty > 0 ? freight_in / totalQty : 0;
+        const insuranceShare = totalQty > 0 ? insurance / totalQty : 0;
+
+        // 3. Buat Journal Entry
+        const { data: journal, error: journalError } = await supabase
+          .from("journal_entries")
+          .insert([
+            {
+              entry_date: new Date().toISOString().split("T")[0],
+              description: `Create Journal Entries for Purchase with ID = ${id}`,
+              invoice_number: number,
+              user_id: user.id,
+            },
+          ])
+          .select()
+          .single();
+
+        if (journalError || !journal) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create journal entry: " + journalError.message,
+          });
+        }
+
+        // 4. Hitung nilai inventory per item
+        const lineEntries = [];
+        let totalInventory = 0;
+
+        for (const item of items) {
+          const { coa, qty, price, returnVal, disc_item, disc_item_type, item_name } = item;
+
+          // Hitung gross & diskon per item
+          let discountedPrice;
+          let gross;
+
+          if (disc_item_type === "percentage") {
+            discountedPrice = price - (price * disc_item) / 100;
+            gross = (discountedPrice + freightShare + insuranceShare) * qty;
+          } else if (disc_item_type === "rupiah") {
+            gross = (price + freightShare + insuranceShare) * qty - disc_item;
+          }
+
+          // Hitung net
+          // const net = gross - discount + penalty - (returnVal || 0);
+          const net = gross - (returnVal || 0);
+
+          totalInventory += net;
+
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: coa, // langsung ambil dari item.coa
+            description: `Inventory - ${item_name}`, // dari item_name JSON
+            debit: net,
+            credit: 0,
+            user_id: user.id,
+            invoice_number: number,
+          });
+        }
+
+        // 5. VAT In
+        if (ppn > 0) {
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: "150101", // VAT In COA
+            description: "VAT In",
+            debit: ppn,
+            credit: 0,
+            user_id: user.id,
+            invoice_number: number,
+          });
+        }
+
+        // 6. Kredit: AP - Vendor
+        const totalDebit = totalInventory + (ppn || 0);
+        lineEntries.push({
+          journal_entry_id: journal.id,
+          account_code: vendor_COA, // mapping ke COA vendor
+          description: vendor_name,
+          debit: 0,
+          credit: totalDebit,
+          user_id: user.id,
+          invoice_number: number,
+        });
+
+        // 7. Insert journal lines
+        const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
+
+        if (insertError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to insert journal lines: " + insertError.message,
+          });
+        }
+
+        const { data: updated, error: updateStatusError } = await supabase.from("invoices").update({ status: "Completed" }).eq("id", invoiceId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({
+          error: false,
+          message: "Journal Entries created successfully",
+          data: {
+            journal,
+            lines: lineEntries,
+          },
+        });
       }
 
       // Approval Shipment Endpoint
@@ -4118,6 +5266,85 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Offer created from quotation successfully" });
       }
 
+      // Reject Billing Endpoint
+      case "rejectBilling": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for rejectBilling." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Billing ID" });
+        }
+
+        // 1. Get billing with status "Pending"
+        const { data: billing, error: fetchError } = await supabase.from("billing_summary").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (fetchError || !billing) {
+          return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
+        }
+
+        const billingId = String(id);
+
+        // 2. Update the billing status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("billing_summary").update({ status: "Rejected" }).eq("id", billingId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update billing status: " + updateStatusError.message });
+        }
+
+        return res.status(201).json({ error: false, message: "Billing has been rejected successfully" });
+      }
+
       // Reject Invoice Endpoint
       case "rejectInvoice": {
         if (method !== "PATCH") {
@@ -4555,30 +5782,36 @@ module.exports = async (req, res) => {
 
         if (search) {
           const stringColumns = ["vendor_name"];
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const uuidColumns = ["id"];
 
-          const eqIntConditions = [];
-          const eqFloatConditions = [];
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push("number.eq." + Number(search));
-          }
+            const eqIntConditions = [];
+            const eqFloatConditions = [];
 
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            eqFloatConditions.push("grand_total.eq." + parseFloat(search));
-          }
-
-          // For detect search like "Quotation #00588"
-          const codeMatch = search.match(/^quotation\s?#?0*(\d{7,})$/i);
-          if (codeMatch) {
-            const extractedNumber = parseInt(codeMatch[1], 10);
-            if (!isNaN(extractedNumber)) {
-              eqIntConditions.push("number.eq." + extractedNumber);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push("number.eq." + Number(search));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(search));
+            }
+
+            // For detect search like "Quotation #00588"
+            const codeMatch = search.match(/^quotation\s?#?0*(\d{7,})$/i);
+            if (codeMatch) {
+              const extractedNumber = parseInt(codeMatch[1], 10);
+              if (!isNaN(extractedNumber)) {
+                eqIntConditions.push("number.eq." + extractedNumber);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error } = await query;
@@ -4587,7 +5820,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((sale) => ({
           ...sale,
-          number: `Quotation #${String(sale.number).padStart(5, "0")}`,
+          number: `${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
