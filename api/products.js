@@ -244,6 +244,7 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("products")
           .update({
+            user_id: user.id,
             category,
             name,
             total_stock: Number(total_stock),
@@ -251,6 +252,7 @@ module.exports = async (req, res) => {
             unit,
             buy_price: Number(buy_price),
             status,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 
@@ -308,9 +310,11 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("warehouses")
           .update({
+            user_id: user.id,
             name,
             location,
             total_stock: Number(total_stock),
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 

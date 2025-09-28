@@ -62,10 +62,6 @@ module.exports = async (req, res) => {
   let action = method === "GET" ? query.action : null;
 
   if (method !== "GET" && headers["content-type"]?.includes("multipart/form-data")) {
-    console.log("=== FORMIDABLE PARSING DEBUG ===");
-    console.log("Content-Type:", headers["content-type"]);
-    console.log("Method:", method);
-
     const form = new formidable.IncomingForm({
       keepExtensions: true,
       maxFileSize: 10 * 1024 * 1024, // 10MB
@@ -75,17 +71,10 @@ module.exports = async (req, res) => {
     try {
       const { fields, files: parsedFiles } = await new Promise((resolve, reject) => {
         form.parse(req, (err, fields, files) => {
-          console.log("Formidable parse callback:");
-          console.log("Error:", err);
-          console.log("Fields:", fields);
-          console.log("Files:", files);
           if (err) reject(err);
           else resolve({ fields, files });
         });
       });
-
-      console.log("Parsed fields:", fields);
-      console.log("Parsed files:", parsedFiles);
 
       // Normalize fields so they are not arrays
       for (const key in fields) {
@@ -98,11 +87,7 @@ module.exports = async (req, res) => {
       // Save to req so it can be used in handler
       req.body = body;
       req.files = files;
-      console.log("Final req.body:", req.body);
-      console.log("Final req.files:", req.files);
-      console.log("===============================");
     } catch (err) {
-      console.error("Formidable parsing error:", err);
       return res.status(400).json({ error: true, message: "Error parsing form-data: " + err.message });
     }
   } else if (method !== "GET") {
@@ -116,10 +101,10 @@ module.exports = async (req, res) => {
       // >>>>>>>>>>>>>>>>>  NEW ENDPOINT FOR INPUT FILE  <<<<<<<<<<<<<
       // =============================================================
 
-      // Add Billing Endpoint
-      case "addNewBilling": {
+      // Add Billing Order Endpoint
+      case "addNewBillingOrder": {
         if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addBilling." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addNewBillingOrder." });
         }
 
         const authHeader = req.headers.authorization;
@@ -173,7 +158,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { vendor_name, invoice_date, terms, grand_total, items: itemsRaw, payment_method, payment_COA, vendor_COA, type, number, status, memo } = req.body;
+          let { vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, prepaid_COA, payment_COA } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -213,7 +198,7 @@ module.exports = async (req, res) => {
                   return res.status(400).json({ error: true, message: "File type not allowed" });
                 }
 
-                const fileName = `purchasesBillings/${user.id}_${Date.now()}_${file.originalFilename}`;
+                const fileName = `purchasesBillingOrders/${user.id}_${Date.now()}_${file.originalFilename}`;
 
                 const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
                   contentType: file.mimetype || "application/octet-stream",
@@ -231,7 +216,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!vendor_name || !invoice_date || !terms || !grand_total || !itemsRaw || !payment_method || !payment_COA || !vendor_COA || !type || !number || !status || !memo) {
+          if (!vendor_name || !order_date || !number || !order_id || !itemsRaw || !installment_amount || !prepaid_COA || !payment_COA) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -239,7 +224,7 @@ module.exports = async (req, res) => {
           }
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("billing_summary").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("billing_order").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -261,7 +246,204 @@ module.exports = async (req, res) => {
             });
           }
 
-          const { error } = await supabase.from("billing_summary").insert([
+          const { error } = await supabase.from("billing_order").insert([
+            {
+              user_id: user.id,
+              vendor_name,
+              order_date,
+              number,
+              order_id,
+              type,
+              memo,
+              items: itemsRaw,
+              installment_amount,
+              prepaid_COA,
+              payment_COA,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create billing summary: " + error.message,
+            });
+          }
+
+          return res.status(201).json({
+            error: false,
+            message: "Billing summary created successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Add Billing Invoice Endpoint
+      case "addNewBillingInvoice": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for addNewBillingInvoice." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        try {
+          let {
+            vendor_name,
+            invoice_date,
+            terms,
+            grand_total,
+            items: itemsRaw,
+            payment_method,
+            payment_COA,
+            vendor_COA,
+            type,
+            number,
+            status,
+            memo,
+            installment_count,
+            installment_amount,
+            installment_type,
+            due_date,
+            payment_date,
+            payment_amount,
+          } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          const attachmentFiles = req.files?.attachment_url;
+          let attachment_urls = [];
+
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            for (const file of attachmentFiles) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || "");
+                const allowedExt = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv"];
+
+                if (!allowedExt.includes(fileExt.toLowerCase())) {
+                  return res.status(400).json({ error: true, message: "File type not allowed" });
+                }
+
+                const fileName = `purchasesBillingInvoices/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Failed to upload attachment: " + uploadError.message });
+                }
+
+                attachment_urls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!vendor_name || !invoice_date || !terms || !grand_total || !itemsRaw || !payment_method || !payment_COA || !vendor_COA || !type || !number || !status || !memo || !due_date || !payment_date) {
+            return res.status(400).json({
+              error: true,
+              message: "Missing required fields",
+            });
+          }
+
+          // Get all number columns from the table
+          const { data: allNumbers, error: fetchError } = await supabase.from("billing_invoice").select("number");
+
+          if (fetchError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to fetch billing summary numbers: " + fetchError.message,
+            });
+          }
+
+          // Assume user input is sent via req.body.number
+          const inputNumber = req.body.number;
+
+          // Check if the number already exists
+          const numberExists = allNumbers.some((row) => row.number === inputNumber);
+
+          if (numberExists) {
+            return res.status(400).json({
+              error: true,
+              message: `The billing summary number "${inputNumber}" has already been used. Please enter a new and unique billing summary number that has not been used before.`,
+            });
+          }
+
+          const { error } = await supabase.from("billing_invoice").insert([
             {
               user_id: user.id,
               vendor_name,
@@ -276,6 +458,12 @@ module.exports = async (req, res) => {
               number,
               status,
               memo,
+              installment_count,
+              installment_amount,
+              installment_type,
+              due_date,
+              payment_date,
+              payment_amount,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -375,6 +563,7 @@ module.exports = async (req, res) => {
             freight_in,
             insurance,
             vendor_COA,
+            items_return,
           } = req.body;
 
           // Parse items if they come in string form (because of form-data)
@@ -544,6 +733,7 @@ module.exports = async (req, res) => {
               freight_in,
               insurance,
               vendor_COA,
+              items_return,
             },
           ]);
 
@@ -1681,10 +1871,10 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Edit Billing Endpoint
-      case "editNewBilling": {
+      // Edit Billing Order Endpoint
+      case "editNewBillingOrder": {
         if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editBilling." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editNewBillingOrder." });
         }
 
         const authHeader = req.headers.authorization;
@@ -1738,7 +1928,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, vendor_name, invoice_date, terms, grand_total, items: itemsRaw, payment_method, payment_COA, vendor_COA, type, number, status, memo } = req.body;
+          const { id, vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, prepaid_COA, payment_COA } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1797,7 +1987,7 @@ module.exports = async (req, res) => {
                 const fileBuffer = await fs.readFile(filePath);
 
                 const fileExt = path.extname(file.originalFilename || ".dat");
-                const fileName = `purchasesBillings/${user.id}_${Date.now()}_${file.originalFilename}`;
+                const fileName = `purchasesBillingOrders/${user.id}_${Date.now()}_${file.originalFilename}`;
 
                 const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
                   contentType: file.mimetype || "application/octet-stream",
@@ -1823,7 +2013,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if billing exists and belongs to user
-          const { data: existingBilling, error: fetchError } = await supabase.from("billing_summary").select("*").eq("id", id).single();
+          const { data: existingBilling, error: fetchError } = await supabase.from("billing_order").select("*").eq("id", id).single();
 
           if (fetchError || !existingBilling) {
             return res.status(404).json({
@@ -1834,6 +2024,99 @@ module.exports = async (req, res) => {
 
           // Prepare update data
           const updateData = {
+            user_id: user.id,
+            vendor_name,
+            order_date,
+            number,
+            order_id,
+            type,
+            memo,
+            items: itemsRaw,
+            installment_amount,
+            prepaid_COA,
+            payment_COA,
+            attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update billing
+          const { error: updateError } = await supabase.from("billing_order").update(updateData).eq("id", id).eq("user_id", user.id);
+
+          if (updateError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to update billing: " + updateError.message,
+            });
+          }
+
+          return res.status(200).json({
+            error: false,
+            message: "Billing updated successfully",
+          });
+        } catch (e) {
+          return res.status(500).json({ error: true, message: "Server error: " + e.message });
+        }
+      }
+
+      // Edit Billing Invoice Endpoint
+      case "editNewBillingInvoice": {
+        if (method !== "PATCH") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editNewBillingInvoice." });
+        }
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser(token);
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user roles from database
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        if (!userProfile.role) {
+          return res.status(400).json({
+            error: true,
+            message: "User role is missing or null. Please update your role first.",
+          });
+        }
+
+        // Convert role string to array, remove spaces, and lowercase
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["finance", "admin"];
+
+        // Check if at least one role is allowed
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        try {
+          const {
+            id,
             vendor_name,
             invoice_date,
             terms,
@@ -1846,12 +2129,133 @@ module.exports = async (req, res) => {
             number,
             status,
             memo,
+            installment_count,
+            installment_amount,
+            installment_type,
+            due_date,
+            payment_date,
+            payment_amount,
+          } = req.body;
+
+          // Parse items if they come in string form (because of form-data)
+          let items;
+          try {
+            if (typeof itemsRaw === "string") {
+              items = JSON.parse(itemsRaw);
+            } else {
+              items = itemsRaw;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          // Parse filesToDelete (string JSON -> array)
+          let filesToDeleteArr = [];
+          if (filesToDelete) {
+            try {
+              filesToDeleteArr = JSON.parse(filesToDelete);
+            } catch (err) {
+              return res.status(400).json({ error: true, message: "Invalid filesToDelete JSON: " + err.message });
+            }
+          }
+
+          // Delete files from Supabase Storage
+          if (filesToDeleteArr.length > 0) {
+            const { error: deleteError } = await supabase.storage.from("private").remove(filesToDeleteArr);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete files: " + deleteError.message,
+              });
+            }
+          }
+
+          // Handle file upload
+          const attachmentFileArray = req.files?.attachment_url;
+          let newAttachmentUrls = [];
+
+          if (attachmentFileArray) {
+            const fs = require("fs/promises");
+            const path = require("path");
+
+            const files = Array.isArray(attachmentFileArray) ? attachmentFileArray : [attachmentFileArray];
+
+            for (const file of files) {
+              if (!file || !file.filepath) {
+                return res.status(400).json({ error: true, message: "Invalid file uploaded" });
+              }
+
+              try {
+                const filePath = file.filepath;
+                const fileBuffer = await fs.readFile(filePath);
+
+                const fileExt = path.extname(file.originalFilename || ".dat");
+                const fileName = `purchasesBillingInvoices/${user.id}_${Date.now()}_${file.originalFilename}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from("private").upload(fileName, fileBuffer, {
+                  contentType: file.mimetype || "application/octet-stream",
+                  upsert: false,
+                });
+
+                if (uploadError) {
+                  return res.status(500).json({ error: true, message: "Upload failed: " + uploadError.message });
+                }
+
+                newAttachmentUrls.push(uploadData.path);
+              } catch (err) {
+                return res.status(500).json({ error: true, message: "Failed to process file: " + err.message });
+              }
+            }
+          }
+
+          if (!id) {
+            return res.status(400).json({
+              error: true,
+              message: "Billing ID is required",
+            });
+          }
+
+          // Check if billing exists and belongs to user
+          const { data: existingBilling, error: fetchError } = await supabase.from("billing_invoice").select("*").eq("id", id).single();
+
+          if (fetchError || !existingBilling) {
+            return res.status(404).json({
+              error: true,
+              message: "Billing not found or unauthorized",
+            });
+          }
+
+          // Prepare update data
+          const updateData = {
+            user_id: user.id,
+            vendor_name,
+            invoice_date,
+            terms,
+            grand_total,
+            items: itemsRaw,
+            payment_method,
+            payment_COA,
+            vendor_COA,
+            type,
+            number,
+            status,
+            memo,
+            installment_count,
+            installment_amount,
+            installment_type,
+            due_date,
+            payment_date,
+            payment_amount,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
 
           // Update billing
-          const { error: updateError } = await supabase.from("billing_summary").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("billing_invoice").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -1948,6 +2352,7 @@ module.exports = async (req, res) => {
             freight_in,
             insurance,
             vendor_COA,
+            items_return,
           } = req.body;
 
           // Parse items if they come in string form (because of form-data)
@@ -2065,6 +2470,7 @@ module.exports = async (req, res) => {
 
           // Prepare update data
           const updateData = {
+            user_id: user.id,
             type: type || existingInvoice.type,
             date: date || existingInvoice.date,
             approver: approver || existingInvoice.approver,
@@ -2089,6 +2495,7 @@ module.exports = async (req, res) => {
             freight_in,
             insurance,
             vendor_COA,
+            items_return,
             updated_at: new Date().toISOString(),
           };
 
@@ -2301,6 +2708,7 @@ module.exports = async (req, res) => {
 
           // Prepare the update data
           const updateData = {
+            user_id: user.id,
             type: type || existingOffer.type,
             date: date || existingOffer.date,
             discount_terms: discount_terms !== undefined ? discount_terms : existingOffer.discount_terms,
@@ -2505,6 +2913,7 @@ module.exports = async (req, res) => {
 
           // Prepare update data
           const updateData = {
+            user_id: user.id,
             type: type || existingOrder.type,
             date: date || existingOrder.date,
             orders_date: orders_date || existingOrder.orders_date,
@@ -2708,6 +3117,7 @@ module.exports = async (req, res) => {
 
           // Prepare update data
           const updateData = {
+            user_id: user.id,
             type: type || existingRequest.type,
             date: date || existingRequest.date,
             requested_by: requested_by || existingRequest.requested_by,
@@ -2719,7 +3129,6 @@ module.exports = async (req, res) => {
             grand_total,
             memo,
             attachment_url: newAttachmentUrls || null,
-
             updated_at: new Date().toISOString(),
           };
 
@@ -2913,6 +3322,7 @@ module.exports = async (req, res) => {
 
           // Prepare update data
           const updateData = {
+            user_id: user.id,
             type: type || existingShipment.type,
             date: date || existingShipment.date,
             tracking_number: tracking_number || existingShipment.tracking_number,
@@ -2925,6 +3335,7 @@ module.exports = async (req, res) => {
             grand_total,
             memo,
             attachment_url: newAttachmentUrls || null,
+            updated_at: new Date().toISOString(),
           };
 
           // Update shipment
@@ -3154,7 +3565,8 @@ module.exports = async (req, res) => {
       }
 
       // Delete Billing Summary, Invoice, Shipment, Order, Offer, and Request Endpoint
-      case "deleteBilling":
+      case "deleteBillingOrder":
+      case "deleteBillingInvoice":
       case "deleteInvoice":
       case "deleteShipment":
       case "deleteOrder":
@@ -3224,7 +3636,8 @@ module.exports = async (req, res) => {
         // }
 
         const tableMap = {
-          deleteBilling: "billing_summary",
+          deleteBillingOrder: "billing_order",
+          deleteBillingInvoice: "billing_invoice",
           deleteInvoice: "invoices",
           deleteShipment: "shipments",
           deleteOrder: "orders",
@@ -3267,8 +3680,8 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Get Billing Endpoint
-      case "getBilling": {
+      // Get Billing Order Endpoint
+      case "getBillingOrder": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
         }
@@ -3316,7 +3729,100 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("billing_summary").select("*").order("invoice_date", { ascending: false }).range(from, to);
+        let query = supabase.from("billing_order").select("*").order("order_date", { ascending: false }).range(from, to);
+
+        if (search) {
+          const stringColumns = ["vendor_name"];
+          const numericColumns = ["installment_amount"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
+          const eqIntConditions = [];
+          const eqFloatConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push("number.eq." + Number(search));
+          }
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            const value = parseFloat(search);
+            eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+          }
+
+          const codeMatch = search.match(/^BIL-?0*(\d{5,})$/i);
+          if (codeMatch) {
+            const extractedNumber = parseInt(codeMatch[1], 10);
+            if (!isNaN(extractedNumber)) {
+              eqIntConditions.push("number.eq." + extractedNumber);
+            }
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch billing summary: " + error.message });
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
+      // Get Billing Invoice Endpoint
+      case "getBillingInvoice": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for ${action}.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["accounting", "finance", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { status } = req.query;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("billing_invoice").select("*").order("invoice_date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -3356,7 +3862,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"BIL"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3859,6 +4365,67 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data: formattedData });
       }
 
+      // Get Approval Billing Invoice Endpoint
+      case "getApprovalBillingInvoice": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: `Method not allowed. Use GET for Approval Billing.` });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        let query = supabase.from("billing_invoice").select("*").eq("status", "Pending");
+        query = query.order("invoice_date", { ascending: false }).limit(limit);
+
+        const { data, error } = await query;
+
+        if (error) {
+          return res.status(500).json({ error: true, message: `Failed to fetch approval data: " + ${error.message}` });
+        }
+
+        const formattedData = data.map((item) => ({
+          ...item,
+          number: `${String(item.number).padStart(5, "0")}`,
+        }));
+
+        return res.status(200).json({ error: false, data: formattedData });
+      }
+
       // Get Approval Invoice Endpoint
       case "getApprovalInvoice": {
         if (method !== "GET") {
@@ -3914,7 +4481,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"INV"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -3975,7 +4542,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"SH"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -4036,7 +4603,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"REQ"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -4097,13 +4664,13 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"QUO"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
       }
 
-      // Approval Billing Payment Invoices Endpoint
+      // Approval Billing Payment Invoices Endpoint (Ibaratnya Tombol Bayar)
       case "sendBillingToCOA": {
         if (method !== "POST") {
           return res.status(405).json({
@@ -4159,8 +4726,8 @@ module.exports = async (req, res) => {
         const billingId = String(id);
 
         const { data: billing, error: billingError } = await supabase
-          .from("billing_summary")
-          .select("items, grand_total, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number")
+          .from("billing_invoice")
+          .select("items, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type")
           .eq("id", id)
           .ilike("status", "pending")
           .single();
@@ -4169,7 +4736,7 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
         }
 
-        const { items, grand_total, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number } = billing;
+        const { items: itemsRaw, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type } = billing;
 
         // Buat journal entry utama
         const { data: journal, error: journalError } = await supabase
@@ -4202,33 +4769,81 @@ module.exports = async (req, res) => {
 
         // ====== Global Discount / Penalty Calculation ======
         if (terms) {
+          console.log("DEBUG >> terms string:", billing.terms);
+
           // Example: "2/10, n/30"
           const match = billing.terms.match(/(\d+)\/(\d+),\s*n\/(\d+)/);
+          console.log("DEBUG >> regex match:", match);
+
           if (match) {
             const discountRate = parseFloat(match[1]); // e.g., 2 (%)
             const discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
             const netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
+            console.log("DEBUG >> discountRate:", discountRate, "discountDays:", discountDays, "netDays:", netDays);
 
-            const paymentDateObj = new Date(payment_date);
+            let paymentDates = {};
+
+            console.log(typeof payment_date);
+            console.log(payment_date);
+
+            if (payment_method === "Full Payment") {
+              paymentDates = {
+                full_pay: payment_date[0]?.full_pay,
+              };
+            } else if (payment_method === "Partial Payment") {
+              if (installment_count === 1) {
+                paymentDates = {
+                  first_pay: payment_date[0]?.first_pay,
+                  final_pay: payment_date[1]?.final_pay,
+                };
+              } else if (installment_count === 2) {
+                paymentDates = {
+                  first_pay: payment_date[0]?.first_pay,
+                  second_pay: payment_date[1]?.second_pay,
+                  final_pay: payment_date[2]?.final_pay,
+                };
+              } else if (installment_count === 3) {
+                paymentDates = {
+                  first_pay: payment_date[0]?.first_pay,
+                  second_pay: payment_date[1]?.second_pay,
+                  third_pay: payment_date[2]?.third_pay,
+                  final_pay: payment_date[3]?.final_pay,
+                };
+              }
+            }
+
+            console.log("DEBUG >> built paymentDates object:", paymentDates);
+
+            let invoiceDateObj = new Date(invoice_date);
+            let paymentDateObj;
+            if (payment_method === "Full Payment") {
+              paymentDateObj = new Date(paymentDates.full_pay);
+            } else if (payment_method === "Partial Payment") {
+              paymentDateObj = new Date(paymentDates.first_pay);
+            }
             const dueDateObj = new Date(due_date);
-            const invoiceDateObj = new Date(billing.invoice_date);
 
-            const diffDiscountDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
-            const diffDueDays = Math.ceil((dueDateObj - paymentDateObj) / (1000 * 60 * 60 * 24));
+            console.log("DEBUG >> paymentDateObj:", paymentDateObj);
+            console.log("DEBUG >> dueDateObj:", dueDateObj);
+
+            // CEK perhitungan diff
+            const diffDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
+            // const diffDueDays = Math.ceil((dueDateObj - paymentDateObj) / (1000 * 60 * 60 * 24));
+            console.log("DEBUG >> diffDays:", diffDays);
 
             // ====== Discount eligibility ======
-            if (diffDiscountDays <= discountDays) {
+            if (diffDays <= discountDays) {
               discountPayment = (grand_total * discountRate) / 100;
-              alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDiscountDays} days left to claim it.`);
+              console.log("DEBUG >> discount applied:", discountPayment);
+              alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDays} days left to claim it.`);
             } else if (paymentDateObj > dueDateObj) {
-              // Example penalty = 5%
-              // penaltyPayment = (grand_total * 5) / 100;
               alerts.push("Warning: Payment is past due date. Penalty may apply.");
+              console.log("DEBUG >> Penalty branch triggered");
             }
 
             // ====== General due date alert ======
-            if (diffDueDays > 0) {
-              alerts.push(`You have ${diffDueDays} days left before the due date (n/${netDays}).`);
+            if (netDays > 0) {
+              alerts.push(`You have ${netDays - diffDays} days left before the due date (n/${netDays}).`);
             } else {
               alerts.push("Invoice is already overdue!");
             }
@@ -4236,20 +4851,21 @@ module.exports = async (req, res) => {
         }
 
         // ====== Prepaid Installment Alerts ======
-        if (prepaid_count) {
-          if (prepaid_count === 3) {
+        if (installment_count) {
+          console.log("DEBUG >> installment_count:", installment_count);
+          if (installment_count === 3) {
             alerts.push("Installment 1: Check remaining days for discount eligibility.");
             alerts.push("Installment 3: Check remaining days for discount eligibility.");
-          } else if (prepaid_count === 2) {
+          } else if (installment_count === 2) {
             alerts.push("Installment 1: Check remaining days for discount eligibility.");
           }
         }
 
         // ====== Total Qty Calculation (for proportional discount/penalty allocation) ======
-        const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+        const totalQty = itemsRaw.reduce((sum, i) => sum + i.qty, 0);
 
         // ====== Loop Items (allocate discount proportionally to inventory) ======
-        for (const item of items) {
+        for (const item of itemsRaw) {
           const { coa, qty } = item;
           const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
           totalInventory += itemDiscount;
@@ -4310,6 +4926,8 @@ module.exports = async (req, res) => {
           }
         }
 
+        console.log("DEBUG >> discountPayment:", discountPayment);
+
         // ====== Journal Entries: Discount Payment Allocation ======
         if (discountPayment > 0) {
           // Debit Cash & Bank
@@ -4323,7 +4941,7 @@ module.exports = async (req, res) => {
           });
 
           // Credit allocation to Inventory (proportional per item)
-          for (const item of items) {
+          for (const item of itemsRaw) {
             const itemDisc = (discountPayment / totalQty) * item.qty;
             lineEntries.push({
               journal_entry_id: journal.id,
@@ -4372,14 +4990,14 @@ module.exports = async (req, res) => {
           });
         }
 
-        // const { data: current, error: fetchError } = await supabase.from("billing_summary").select("grand_total").eq("id", billingId).single();
+        // const { data: current, error: fetchError } = await supabase.from("billing_invoice").select("grand_total").eq("id", billingId).single();
 
         // if (fetchError) throw fetchError;
 
         // const newGrandTotal = current.grand_total - discountPayment;
 
         // const { data, error } = await supabase
-        //   .from("billing_summary")
+        //   .from("billing_invoice")
         //   .update({
         //     status: "Completed",
         //     grand_total: newGrandTotal,
@@ -4394,6 +5012,7 @@ module.exports = async (req, res) => {
             journal,
             lines: lineEntries,
           },
+          alerts: alerts,
         });
       }
 
@@ -4464,7 +5083,6 @@ module.exports = async (req, res) => {
 
         // 2. Hitung total qty semua item
         const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
-        console.log(totalQty);
 
         const freightShare = totalQty > 0 ? freight_in / totalQty : 0;
         const insuranceShare = totalQty > 0 ? insurance / totalQty : 0;
@@ -5327,7 +5945,7 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get billing with status "Pending"
-        const { data: billing, error: fetchError } = await supabase.from("billing_summary").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: billing, error: fetchError } = await supabase.from("billing_invoice").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !billing) {
           return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
@@ -5336,7 +5954,7 @@ module.exports = async (req, res) => {
         const billingId = String(id);
 
         // 2. Update the billing status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("billing_summary").update({ status: "Rejected" }).eq("id", billingId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("billing_invoice").update({ status: "Rejected" }).eq("id", billingId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update billing status: " + updateStatusError.message });
@@ -6557,6 +7175,7 @@ module.exports = async (req, res) => {
 
         // Prepare update data
         const updateData = {
+          user_id: user.id,
           type: type || existingInvoice.type,
           date: date || existingInvoice.date,
           approver: approver || existingInvoice.approver,
@@ -6572,6 +7191,7 @@ module.exports = async (req, res) => {
           ppn,
           pph,
           grand_total,
+          updated_at: new Date().toISOString(),
         };
 
         // Update invoice
@@ -6691,6 +7311,7 @@ module.exports = async (req, res) => {
 
         // Prepare the update data
         const updateData = {
+          user_id: user.id,
           type: type || existingOffer.type,
           date: date || existingOffer.date,
           discount_terms: discount_terms !== undefined ? discount_terms : existingOffer.discount_terms,
@@ -6832,6 +7453,7 @@ module.exports = async (req, res) => {
 
         // Prepare update data
         const updateData = {
+          user_id: user.id,
           type: type || existingOrder.type,
           date: date || existingOrder.date,
           orders_date: orders_date || existingOrder.orders_date,
@@ -6840,6 +7462,7 @@ module.exports = async (req, res) => {
           tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingOrder.tags,
           items: updatedItems,
           grand_total,
+          updated_at: new Date().toISOString(),
         };
 
         // Update order
@@ -6940,6 +7563,7 @@ module.exports = async (req, res) => {
 
         // Prepare update data
         const updateData = {
+          user_id: user.id,
           type: type || existingRequest.type,
           date: date || existingRequest.date,
           requested_by: requested_by || existingRequest.requested_by,
@@ -7050,6 +7674,7 @@ module.exports = async (req, res) => {
 
         // Prepare update data
         const updateData = {
+          user_id: user.id,
           type: type || existingShipment.type,
           date: date || existingShipment.date,
           tracking_number: tracking_number || existingShipment.tracking_number,
@@ -7060,6 +7685,7 @@ module.exports = async (req, res) => {
           tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingShipment.tags,
           items: updatedItems,
           grand_total,
+          updated_at: new Date().toISOString(),
         };
 
         // Update shipment
@@ -7970,7 +8596,6 @@ module.exports = async (req, res) => {
         return res.status(404).json({ error: true, message: "Endpoint not found" });
     }
   } catch (error) {
-    console.error("Error:", error);
     return res.status(500).json({ error: true, message: error.message || "Unexpected server error" });
   }
 };

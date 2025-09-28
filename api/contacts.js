@@ -165,11 +165,13 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("contacts")
           .update({
+            user_id: user.id,
             category,
             name,
             email,
             phone,
             address,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 

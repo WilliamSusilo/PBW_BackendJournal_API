@@ -194,6 +194,7 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("assets")
           .update({
+            user_id: user.id,
             asset_type,
             asset_name,
             model,
@@ -204,6 +205,7 @@ module.exports = async (req, res) => {
             warranty_deadline,
             manufacturer,
             serial_number,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 
@@ -417,6 +419,7 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("assets")
           .update({
+            user_id: user.id,
             status: "Sold",
             sale_date,
             sale_price,

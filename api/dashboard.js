@@ -1594,6 +1594,7 @@ module.exports = async (req, res) => {
 
           // Siapkan payload update
           const updateFields = {
+            user_id: user.id,
             journal_code: newJournalCode ?? journal.journal_code,
             date,
             tag,

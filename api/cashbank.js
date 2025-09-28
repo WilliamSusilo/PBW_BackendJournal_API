@@ -207,12 +207,14 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("cashbank")
           .update({
+            user_id: user.id,
             account_name,
             account_type,
             bank_name,
             bank_number,
             balance: Number(balance),
             type,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 

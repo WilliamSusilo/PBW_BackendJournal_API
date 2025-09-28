@@ -158,6 +158,7 @@ module.exports = async (req, res) => {
             status,
             items: updatedItems,
             grand_total,
+            updated_at: new Date().toISOString(),
           },
         ]);
 
@@ -224,12 +225,14 @@ module.exports = async (req, res) => {
         const { error: updateError } = await supabase
           .from("expenses")
           .update({
+            user_id: user.id,
             date,
             category,
             beneficiary,
             status,
             items: updatedItems,
             grand_total,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 
