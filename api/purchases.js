@@ -5,7 +5,7 @@ const formidable = require("formidable");
 // Initialization for middleware CORS
 const cors = Cors({
   methods: ["GET", "POST", "OPTIONS", "PATCH", "PUT", "DELETE"],
-  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app", "https://prabaraja-project-bkiqp6jqm-ivander-kendrick-wijonos-projects.vercel.app"],
+  origin: ["http://localhost:8080", "http://192.168.100.3:8080", "https://prabaraja-webapp.vercel.app", "https://prabaraja-project.vercel.app"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 
@@ -158,7 +158,29 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, prepaid_COA, payment_COA } = req.body;
+          let { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_date, ppn } = req.body;
+
+          // Cek installment_option sebelum lanjut
+          const { data: order, error: orderError } = await supabase
+            .from("orders")
+            .select("installment_option")
+            .eq("id", id) // ganti dengan id order yang kamu proses
+            .single();
+
+          if (orderError || !order) {
+            return res.status(404).json({
+              error: true,
+              message: "Order not found",
+            });
+          }
+
+          // Kalau installment_option = FALSE → kasih error
+          if (order.installment_option === false || order.installment_option === null) {
+            return res.status(400).json({
+              error: true,
+              message: "You must first select the prepaid payment option before proceeding.",
+            });
+          }
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -216,7 +238,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!vendor_name || !order_date || !number || !order_id || !itemsRaw || !installment_amount || !prepaid_COA || !payment_COA) {
+          if (!vendor_name || !order_date || !number || !itemsRaw || !installment_amount || !installment_COA || !payment_COA) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -252,16 +274,80 @@ module.exports = async (req, res) => {
               vendor_name,
               order_date,
               number,
-              order_id,
               type,
               memo,
               items: itemsRaw,
               installment_amount,
-              prepaid_COA,
+              installment_COA,
               payment_COA,
+              installment_name,
+              payment_date,
+              ppn,
               attachment_url: attachment_urls || null,
             },
           ]);
+
+          // Buat journal entry utama
+          const { data: journal, error: journalError } = await supabase
+            .from("journal_entries")
+            .insert({
+              transaction_number: `ORD-${number}`,
+              description: `Journal for Billing Order`,
+              user_id: user.id,
+              entry_date: new Date().toISOString().split("T")[0],
+              created_at: new Date(),
+            })
+            .select()
+            .single();
+
+          if (journalError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create journal entry: " + journalError.message,
+            });
+          }
+
+          const lineEntries = [];
+
+          // Debit Purchase Prepaid Vendor
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: installment_COA,
+            description: installment_name,
+            debit: installment_amount,
+            credit: 0,
+            user_id: user.id,
+          });
+
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: 160101, 
+            description: "VAT In", 
+            debit: ppn,
+            credit: 0,
+            user_id: user.id,
+            transaction_number: number,
+          });
+
+          // Credit Cash & Bank
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: payment_COA,
+            description: "Cash & Bank",
+            debit: 0,
+            credit: installment_amount + ppn,
+            user_id: user.id,
+          });
+
+          // Insert ke Supabase
+          const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
+
+          if (insertError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to insert journal lines: " + insertError.message,
+            });
+          }
 
           if (error) {
             return res.status(500).json({
@@ -273,6 +359,10 @@ module.exports = async (req, res) => {
           return res.status(201).json({
             error: false,
             message: "Billing summary created successfully",
+            data: {
+              journal,
+              lines: lineEntries,
+            },
           });
         } catch (e) {
           return res.status(500).json({ error: true, message: "Server error: " + e.message });
@@ -1928,7 +2018,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, prepaid_COA, payment_COA } = req.body;
+          const { id, vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2033,7 +2123,7 @@ module.exports = async (req, res) => {
             memo,
             items: itemsRaw,
             installment_amount,
-            prepaid_COA,
+            installment_COA,
             payment_COA,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
@@ -4727,7 +4817,7 @@ module.exports = async (req, res) => {
 
         const { data: billing, error: billingError } = await supabase
           .from("billing_invoice")
-          .select("items, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type")
+          .select("items, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type, ppn")
           .eq("id", id)
           .ilike("status", "pending")
           .single();
@@ -4743,8 +4833,8 @@ module.exports = async (req, res) => {
           .from("journal_entries")
           .insert({
             id: billingId,
-            invoice_number: `INV-${number}`,
-            description: `Journal for Billing ${billingId}`,
+            transaction_number: `INV-${number}`,
+            description: `Journal for Billing Invoice ${billingId}`,
             user_id: user.id,
             entry_date: new Date().toISOString().split("T")[0],
             created_at: new Date(),
@@ -4871,6 +4961,12 @@ module.exports = async (req, res) => {
           totalInventory += itemDiscount;
         }
 
+        // const { data: billingOrder, error: billingOrderError } = await supabase.from("billing_order").select("number").eq("id", id).ilike("status", "pending").single();
+
+        // if (billingError || !billing) {
+        //   return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
+        // }
+
         // ====== Journal Entries: Full Payment ======
         if (payment_method === "Full Payment") {
           // Debit Vendor
@@ -4883,13 +4979,23 @@ module.exports = async (req, res) => {
             user_id: user.id,
           });
 
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: 160101, 
+            description: "VAT In", 
+            debit: ppn,
+            credit: 0,
+            user_id: user.id,
+            transaction_number: number,
+          });
+
           // Credit Cash & Bank
           lineEntries.push({
             journal_entry_id: journal.id,
             account_code: payment_COA,
             description: "Cash & Bank",
             debit: 0,
-            credit: grand_total,
+            credit: grand_total + ppn,
             user_id: user.id,
           });
         }
@@ -5073,13 +5179,13 @@ module.exports = async (req, res) => {
         const invoiceId = String(id);
 
         // 1. Ambil invoice dari DB
-        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number").eq("id", id).ilike("status", "pending").single();
+        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number, installment_name, installment_COA, installment_amount").eq("id", id).ilike("status", "pending").single();
 
         if (invoiceError || !invoice) {
           return res.status(404).json({ error: true, message: "Invoice not found or already completed/cancelled" });
         }
 
-        const { items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number } = invoice;
+        const { items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number, installment_name, installment_COA, installment_amount } = invoice;
 
         // 2. Hitung total qty semua item
         const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
@@ -5094,7 +5200,7 @@ module.exports = async (req, res) => {
             {
               entry_date: new Date().toISOString().split("T")[0],
               description: `Create Journal Entries for Purchase with ID = ${id}`,
-              invoice_number: number,
+              transaction_number: number,
               user_id: user.id,
             },
           ])
@@ -5139,25 +5245,13 @@ module.exports = async (req, res) => {
             debit: net,
             credit: 0,
             user_id: user.id,
-            invoice_number: number,
+            transaction_number: number,
           });
         }
 
-        // 5. VAT In
-        if (ppn > 0) {
-          lineEntries.push({
-            journal_entry_id: journal.id,
-            account_code: "150101", // VAT In COA
-            description: "VAT In",
-            debit: ppn,
-            credit: 0,
-            user_id: user.id,
-            invoice_number: number,
-          });
-        }
-
-        // 6. Kredit: AP - Vendor
-        const totalDebit = totalInventory + (ppn || 0);
+        // 5. Kredit: AP - Vendor
+        const totalDebit = totalInventory;
+        // const totalDebit = totalInventory + (ppn || 0);
         lineEntries.push({
           journal_entry_id: journal.id,
           account_code: vendor_COA, // mapping ke COA vendor
@@ -5165,8 +5259,31 @@ module.exports = async (req, res) => {
           debit: 0,
           credit: totalDebit,
           user_id: user.id,
-          invoice_number: number,
+          transaction_number: number,
         });
+
+
+        // 6. Kredit: Installment - Vendor
+        const {data: sameNumberOrders, error: sameNumberError } = await supabase
+          .from("billing_order")
+          .select("id, number, items")
+          .eq("number", number);
+
+          if (sameNumberError) {
+            return res.status(500).json({ error: true, message: "Failed to check billing_order by number" });
+          }
+
+        if (sameNumberOrders && sameNumberOrders.length > 0) {
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: installment_COA, 
+            description: installment_name,
+            debit: 0,
+            credit: installment_amount,
+            user_id: user.id,
+            transaction_number: number,
+          });
+        }
 
         // 7. Insert journal lines
         const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
