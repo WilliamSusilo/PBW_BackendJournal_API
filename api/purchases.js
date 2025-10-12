@@ -2614,6 +2614,34 @@ module.exports = async (req, res) => {
             });
           }
 
+          let paymentAmount;
+          try {
+            if (typeof req.body.payment_amount === "string" && req.body.payment_amount.trim() !== "") {
+              paymentAmount = JSON.parse(req.body.payment_amount);
+            } else {
+              paymentAmount = req.body.payment_amount;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid payment_amount format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
+          let installmentAmount;
+          try {
+            if (typeof req.body.installment_amount === "string" && req.body.installment_amount.trim() !== "") {
+              installmentAmount = JSON.parse(req.body.installment_amount);
+            } else {
+              installmentAmount = req.body.installment_amount;
+            }
+          } catch (parseError) {
+            return res.status(400).json({
+              error: true,
+              message: "Invalid installment_amount format. Must be valid JSON array: " + parseError.message,
+            });
+          }
+
           // Prepare update data
           const updateData = {
             user_id: user.id,
@@ -2622,9 +2650,9 @@ module.exports = async (req, res) => {
             vendor_COA,
             memo,
             payment_date,
-            installment_amount,
+            installment_amount: installmentAmount,
             installment_type,
-            payment_amount,
+            payment_amount: paymentAmount,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
