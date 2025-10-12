@@ -938,6 +938,7 @@ module.exports = async (req, res) => {
         try {
           // Params from Postman Query (key=value in Params tab)
           const search = req.query.search?.toLowerCase();
+          const filterBy = req.query.search;
           const pagination = parseInt(req.query.page) || 1;
           const limitValue = parseInt(req.query.limit) || 10;
           const from = (pagination - 1) * limitValue;
@@ -953,7 +954,16 @@ module.exports = async (req, res) => {
 
           // Search filter
           if (search) {
-            const stringColumns = ["name", "description", "category", "tax"];
+            let stringColumns = [];
+
+            if (filterBy === "parent_code") {
+              stringColumns = ["parent_code"];
+            } else if (filterBy === "category") {
+              stringColumns = ["category"];
+            } else {
+              stringColumns = ["parent_code", "category"];
+            }
+
             const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
             // Kalau search berupa angka, bisa cari di account_code
@@ -1846,7 +1856,86 @@ module.exports = async (req, res) => {
         }
         // Level 3 → no children, just update the account.
 
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            endpoint_name: "Lock Account COA",
+            http_method: req.method,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
+        }
+
         return res.status(200).json({ error: false, message: `Account ${account_code} and its descendants lock_option updated to ${lock_option}` });
+      }
+
+      // Log Activity Endpoint
+      case "getLogActivity": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getLogActivity." });
+        }
+
+        // --- AUTHENTICATION ---
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // --- FETCH LOG ACTIVITY DATA ---
+        const { data: logs, error: logError } = await supabase
+          .from("activity_logs")
+          .select(
+            `
+            id,
+            user_id,
+            endpoint_name,
+            http_method,
+            created_at,
+            updated_at,
+            deleted_at,
+            user_email
+          `
+          )
+          .order("created_at", { ascending: false });
+
+        if (logError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch log activity: " + logError.message });
+        }
+
+        // --- FORMAT RESULT ---
+        const formattedLogs = logs.map((log) => ({
+          id: log.id,
+          user_id: log.user_id,
+          email: log.user_email || null,
+          endpoint_name: log.endpoint_name,
+          http_method: log.http_method,
+          created_at: log.created_at,
+          updated_at: log.updated_at,
+          deleted_at: log.deleted_at,
+        }));
+
+        // --- RESPONSE ---
+        return res.status(200).json({
+          error: false,
+          message: "Activity logs retrieved successfully",
+          count: formattedLogs.length,
+          data: formattedLogs,
+        });
       }
 
       // Non-existent Endpoint

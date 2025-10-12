@@ -1,6 +1,8 @@
 const { getSupabaseWithToken } = require("../lib/supabaseClient");
 const Cors = require("cors");
+const { tracingChannel } = require("diagnostics_channel");
 const formidable = require("formidable");
+const { request } = require("http");
 
 // Initialization for middleware CORS
 const cors = Cors({
@@ -97,10 +99,6 @@ module.exports = async (req, res) => {
 
   try {
     switch (action) {
-      // =============================================================
-      // >>>>>>>>>>>>>>>>>  NEW ENDPOINT FOR INPUT FILE  <<<<<<<<<<<<<
-      // =============================================================
-
       // Add Billing Order Endpoint
       case "addNewBillingOrder": {
         if (method !== "POST") {
@@ -158,13 +156,14 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_date, ppn } = req.body;
+          // Input id for connect with purchase order data
+          let { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, vat_name, vat_COA } = req.body;
 
-          // Cek installment_option sebelum lanjut
+          // Check the installment options before continuing
           const { data: order, error: orderError } = await supabase
             .from("orders")
-            .select("installment_option")
-            .eq("id", id) // ganti dengan id order yang kamu proses
+            .select("installment_option, tax_method, ppn_percentage, grand_total")
+            .eq("id", id) // replace with the order ID you are processing
             .single();
 
           if (orderError || !order) {
@@ -174,7 +173,7 @@ module.exports = async (req, res) => {
             });
           }
 
-          // Kalau installment_option = FALSE → kasih error
+          // If installment_option = FALSE → error
           if (order.installment_option === false || order.installment_option === null) {
             return res.status(400).json({
               error: true,
@@ -238,7 +237,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!vendor_name || !order_date || !number || !itemsRaw || !installment_amount || !installment_COA || !payment_COA) {
+          if (!id || !vendor_name || !order_date || !number || !itemsRaw || !installment_amount || !installment_COA || !payment_COA || !payment_COA || !installment_name || !payment_name || !vat_name || !vat_COA) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -251,7 +250,7 @@ module.exports = async (req, res) => {
           if (fetchError) {
             return res.status(500).json({
               error: true,
-              message: "Failed to fetch billing summary numbers: " + fetchError.message,
+              message: "Failed to fetch billing order numbers: " + fetchError.message,
             });
           }
 
@@ -264,30 +263,43 @@ module.exports = async (req, res) => {
           if (numberExists) {
             return res.status(400).json({
               error: true,
-              message: `The billing summary number "${inputNumber}" has already been used. Please enter a new and unique billing summary number that has not been used before.`,
+              message: `The billing order number "${inputNumber}" has already been used. Please enter a new and unique billing order number that has not been used before.`,
             });
           }
 
-          const { error } = await supabase.from("billing_order").insert([
-            {
-              user_id: user.id,
-              vendor_name,
-              order_date,
-              number,
-              type,
-              memo,
-              items: itemsRaw,
-              installment_amount,
-              installment_COA,
-              payment_COA,
-              installment_name,
-              payment_date,
-              ppn,
-              attachment_url: attachment_urls || null,
-            },
-          ]);
+          // Ambil nilai dari hasil query
+          const { grand_total, tax_method, ppn_percentage } = order;
 
-          // Buat journal entry utama
+          // Pastikan persentase PPN valid
+          const grandTotal = Number(grand_total) || 0;
+          console.log("Ini grandTotal =", grandTotal);
+          const ppnRate = Number(ppn_percentage) / 100;
+          let dpp = 0;
+          let ppn = 0;
+
+          // Logika perhitungan sesuai kondisi tax_method
+          if (tax_method === "Before Calculate") {
+            dpp = (11 / 12) * installment_amount;
+            ppn = Math.round(ppnRate * dpp);
+          } else if (tax_method === "After Calculate") {
+            dpp = installment_amount / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+          } else {
+            return res.status(400).json({
+              error: true,
+              message: `Unknown tax method: ${tax_method}`,
+            });
+          }
+
+          // Hitung total yang dibayar (DP atau cicilan)
+          const paid_amount = Math.round(Number(installment_amount) + ppn);
+
+          // Hitung sisa saldo pembayaran
+          const remain_balance = Math.max(grandTotal - paid_amount);
+
+          console.log("Ini remain balance =", remain_balance);
+
+          // Make journal entry
           const { data: journal, error: journalError } = await supabase
             .from("journal_entries")
             .insert({
@@ -321,21 +333,20 @@ module.exports = async (req, res) => {
 
           lineEntries.push({
             journal_entry_id: journal.id,
-            account_code: 160101, 
-            description: "VAT In", 
+            account_code: vat_COA,
+            description: vat_name,
             debit: ppn,
             credit: 0,
             user_id: user.id,
-            transaction_number: number,
           });
 
           // Credit Cash & Bank
           lineEntries.push({
             journal_entry_id: journal.id,
             account_code: payment_COA,
-            description: "Cash & Bank",
+            description: payment_name,
             debit: 0,
-            credit: installment_amount + ppn,
+            credit: paid_amount,
             user_id: user.id,
           });
 
@@ -349,11 +360,53 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error } = await supabase.from("billing_order").insert([
+            {
+              user_id: user.id,
+              vendor_name,
+              order_date,
+              number,
+              type,
+              memo,
+              items: itemsRaw,
+              installment_amount,
+              installment_COA,
+              payment_COA,
+              installment_name,
+              payment_name,
+              vat_name,
+              vat_COA,
+              remain_balance,
+              attachment_url: attachment_urls || null,
+            },
+          ]);
+
+          if (installment_amount <= 0) {
+            return res.status(400).json({
+              error: true,
+              message: "Installment_amount must be a valid positive number",
+            });
+          }
+
           if (error) {
             return res.status(500).json({
               error: true,
               message: "Failed to create billing summary: " + error.message,
             });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Billing Order",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(201).json({
@@ -426,26 +479,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let {
-            vendor_name,
-            invoice_date,
-            terms,
-            grand_total,
-            items: itemsRaw,
-            payment_method,
-            payment_COA,
-            vendor_COA,
-            type,
-            number,
-            status,
-            memo,
-            installment_count,
-            installment_amount,
-            installment_type,
-            due_date,
-            payment_date,
-            payment_amount,
-          } = req.body;
+          let { vendor_name, invoice_date, terms, grand_total, items: itemsRaw, payment_method, payment_COA, vendor_COA, type, number, status, memo, installment_amount, installment_type, due_date, payment_date, payment_amount } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -548,7 +582,6 @@ module.exports = async (req, res) => {
               number,
               status,
               memo,
-              installment_count,
               installment_amount,
               installment_type,
               due_date,
@@ -563,6 +596,20 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to create billing summary: " + error.message,
             });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Billing Invoice",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(201).json({
@@ -633,18 +680,21 @@ module.exports = async (req, res) => {
         try {
           let {
             type,
-            number,
             date,
+            number,
             approver,
             due_date,
             status,
-            tags,
             items: itemsRaw,
-            tax_calculation_method,
+            tax_method,
             ppn_percentage,
             pph_type,
             pph_percentage,
+            dpp,
+            ppn,
+            pph,
             grand_total,
+            tags,
             memo,
             vendor_name,
             vendor_address,
@@ -653,7 +703,7 @@ module.exports = async (req, res) => {
             freight_in,
             insurance,
             vendor_COA,
-            items_return,
+            total,
           } = req.body;
 
           // Parse items if they come in string form (because of form-data)
@@ -712,7 +762,32 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!type || !date || !approver || !due_date || !status || !items || items.length === 0 || !ppn_percentage || !pph_type || !pph_percentage || !grand_total) {
+          if (
+            !type ||
+            !date ||
+            !number ||
+            !approver ||
+            !due_date ||
+            !status ||
+            !items ||
+            items.length === 0 ||
+            !tax_method ||
+            !ppn_percentage ||
+            !pph_type ||
+            !pph_percentage ||
+            !dpp ||
+            !ppn ||
+            !pph ||
+            !grand_total ||
+            !vendor_name ||
+            !vendor_address ||
+            !vendor_phone ||
+            !terms ||
+            !freight_in ||
+            !insurance ||
+            !vendor_COA ||
+            !total
+          ) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -785,11 +860,11 @@ module.exports = async (req, res) => {
             };
           });
 
-          const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+          // const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-          // Calculate PPN and PPh
-          const ppn = (dpp * (ppn_percentage || 0)) / 100;
-          const pph = (dpp * (pph_percentage || 0)) / 100;
+          // // Calculate PPN and PPh
+          // const ppn = (dpp * (ppn_percentage || 0)) / 100;
+          // const pph = (dpp * (pph_percentage || 0)) / 100;
 
           // Final grand total
           // const grand_total = dpp + ppn - pph;
@@ -799,14 +874,12 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              // number: nextNumber,
               number,
               approver,
               due_date,
               status,
-              tags,
               items: updatedItems,
-              tax_calculation_method,
+              tax_method,
               ppn_percentage,
               pph_type,
               pph_percentage,
@@ -814,8 +887,8 @@ module.exports = async (req, res) => {
               ppn,
               pph,
               grand_total,
+              tags,
               memo,
-              attachment_url: attachment_urls || null,
               vendor_name,
               vendor_address,
               vendor_phone,
@@ -823,7 +896,8 @@ module.exports = async (req, res) => {
               freight_in,
               insurance,
               vendor_COA,
-              items_return,
+              total,
+              attachment_url: attachment_urls || null,
             },
           ]);
 
@@ -832,6 +906,20 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to create invoice: " + error.message,
             });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Invoice",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(201).json({
@@ -1059,6 +1147,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Offer",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(201).json({
             error: false,
             message: "Offer created successfully",
@@ -1282,6 +1384,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Order",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(201).json({
             error: false,
             message: "Order created successfully",
@@ -1348,7 +1464,31 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { type, number, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let {
+            type,
+            date,
+            number,
+            requested_by,
+            urgency,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            installment_amount,
+            tax_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            total,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1406,7 +1546,29 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!type || !date || !requested_by || !urgency || !due_date || !status || !items || items.length === 0 || !grand_total) {
+          if (
+            !type ||
+            !date ||
+            !number ||
+            !requested_by ||
+            !urgency ||
+            !due_date ||
+            !status ||
+            !items ||
+            items.length === 0 ||
+            !grand_total ||
+            !vendor_name ||
+            !vendor_address ||
+            !vendor_phone ||
+            !tax_method ||
+            !ppn_percentage ||
+            !pph_type ||
+            !pph_percentage ||
+            !dpp ||
+            !ppn ||
+            !pph ||
+            !total
+          ) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -1486,7 +1648,6 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              // number: nextNumber,
               number,
               requested_by,
               urgency,
@@ -1496,6 +1657,18 @@ module.exports = async (req, res) => {
               items: updatedItems,
               grand_total,
               memo,
+              vendor_name,
+              vendor_address,
+              vendor_phone,
+              installment_amount: Math.round(installment_amount),
+              tax_method,
+              ppn_percentage,
+              pph_type,
+              pph_percentage,
+              dpp,
+              ppn,
+              pph,
+              total,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -1505,6 +1678,20 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to create request: " + error.message,
             });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Request",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(201).json({
@@ -1573,7 +1760,31 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { type, number, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, grand_total, memo } = req.body;
+          let {
+            type,
+            date,
+            number,
+            tracking_number,
+            carrier,
+            shipping_date,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            tax_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            total,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1631,7 +1842,30 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!date || !items || items.length === 0) {
+          if (
+            !type ||
+            !date ||
+            !number ||
+            !tracking_number ||
+            !carrier ||
+            !shipping_date ||
+            !due_date ||
+            !status ||
+            !items ||
+            items.length === 0 ||
+            !grand_total ||
+            !vendor_name ||
+            !vendor_address ||
+            !vendor_phone ||
+            !tax_method ||
+            !ppn_percentage ||
+            !pph_type ||
+            !pph_percentage ||
+            !dpp ||
+            !ppn ||
+            !pph ||
+            !total
+          ) {
             return res.status(400).json({
               error: true,
               message: "Missing required fields",
@@ -1711,7 +1945,6 @@ module.exports = async (req, res) => {
               user_id: user.id,
               type,
               date,
-              // number: nextNumber,
               number,
               tracking_number,
               carrier,
@@ -1722,6 +1955,17 @@ module.exports = async (req, res) => {
               items: updatedItems,
               grand_total,
               memo,
+              vendor_name,
+              vendor_address,
+              vendor_phone,
+              tax_method,
+              ppn_percentage,
+              pph_type,
+              pph_percentage,
+              dpp,
+              ppn,
+              pph,
+              total,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -1731,6 +1975,20 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to create shipment: " + error.message,
             });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Shipment",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(201).json({
@@ -1794,7 +2052,31 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { type, number, vendor_name, quotation_date, valid_until, status, terms, items: itemsRaw, grand_total, total, memo, tax_details, due_date, tags, tax_method, dpp, ppn, pph, vendor_address, vendor_phone, start_date } = req.body;
+          let {
+            number,
+            vendor_name,
+            quotation_date,
+            valid_until,
+            status,
+            terms,
+            items: itemsRaw,
+            total,
+            memo,
+            type,
+            due_date,
+            tags,
+            grand_total,
+            tax_method,
+            dpp,
+            ppn,
+            pph,
+            vendor_address,
+            vendor_phone,
+            start_date,
+            ppn_percentage,
+            pph_percentage,
+            pph_type,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -1852,7 +2134,30 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!vendor_name || !quotation_date || !valid_until || !status || !terms || !items || items.length === 0 || !grand_total || !total || !vendor_address || !vendor_phone || !start_date) {
+          if (
+            !number ||
+            !vendor_name ||
+            !quotation_date ||
+            !valid_until ||
+            !status ||
+            !terms ||
+            !items ||
+            items.length === 0 ||
+            !total ||
+            !type ||
+            !due_date ||
+            !grand_total ||
+            !tax_method ||
+            !dpp ||
+            !ppn ||
+            !pph ||
+            !vendor_address ||
+            !vendor_phone ||
+            !start_date ||
+            !ppn_percentage ||
+            !pph_percentage ||
+            !pph_type
+          ) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
@@ -1911,7 +2216,7 @@ module.exports = async (req, res) => {
 
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
-            const unit_price = Number(item.unit_price) || 0;
+            const unit_price = Number(item.price) || 0;
             const total_per_item = qty * unit_price;
 
             return {
@@ -1923,7 +2228,6 @@ module.exports = async (req, res) => {
           const { error: insertError } = await supabase.from("quotations_purchases").insert([
             {
               user_id: user.id,
-              // number: nextQuotationNumber,
               number,
               vendor_name,
               quotation_date,
@@ -1932,12 +2236,11 @@ module.exports = async (req, res) => {
               terms,
               items: updatedItems,
               total,
-              grand_total,
               memo,
               type,
-              tax_details,
               due_date,
               tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              grand_total,
               tax_method,
               dpp,
               ppn,
@@ -1945,6 +2248,9 @@ module.exports = async (req, res) => {
               vendor_address,
               vendor_phone,
               start_date,
+              ppn_percentage,
+              pph_percentage,
+              pph_type,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -1954,6 +2260,20 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to create quotation: " + insertError.message,
             });
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Quotation",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
 
           return res.status(201).json({ error: false, message: "Quotation created successfully" });
         } catch (e) {
@@ -2018,7 +2338,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, vendor_name, order_date, number, order_id, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA } = req.body;
+          const { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, remain_balance, status, ppn, filesToDelete } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2115,16 +2435,12 @@ module.exports = async (req, res) => {
           // Prepare update data
           const updateData = {
             user_id: user.id,
-            vendor_name,
-            order_date,
-            number,
-            order_id,
-            type,
             memo,
-            items: itemsRaw,
-            installment_amount,
             installment_COA,
             payment_COA,
+            installment_name,
+            payment_name,
+            status,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
@@ -2139,9 +2455,23 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Billing Order",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
-            message: "Billing updated successfully",
+            message: "Billing order updated successfully",
           });
         } catch (e) {
           return res.status(500).json({ error: true, message: "Server error: " + e.message });
@@ -2205,42 +2535,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const {
-            id,
-            vendor_name,
-            invoice_date,
-            terms,
-            grand_total,
-            items: itemsRaw,
-            payment_method,
-            payment_COA,
-            vendor_COA,
-            type,
-            number,
-            status,
-            memo,
-            installment_count,
-            installment_amount,
-            installment_type,
-            due_date,
-            payment_date,
-            payment_amount,
-          } = req.body;
-
-          // Parse items if they come in string form (because of form-data)
-          let items;
-          try {
-            if (typeof itemsRaw === "string") {
-              items = JSON.parse(itemsRaw);
-            } else {
-              items = itemsRaw;
-            }
-          } catch (parseError) {
-            return res.status(400).json({
-              error: true,
-              message: "Invalid items format. Must be valid JSON array: " + parseError.message,
-            });
-          }
+          const { id, payment_method, payment_COA, vendor_COA, memo, payment_date, installment_amount, installment_type, payment_amount, filesToDelete } = req.body;
 
           // Parse filesToDelete (string JSON -> array)
           let filesToDeleteArr = [];
@@ -2322,23 +2617,13 @@ module.exports = async (req, res) => {
           // Prepare update data
           const updateData = {
             user_id: user.id,
-            vendor_name,
-            invoice_date,
-            terms,
-            grand_total,
-            items: itemsRaw,
             payment_method,
             payment_COA,
             vendor_COA,
-            type,
-            number,
-            status,
             memo,
-            installment_count,
+            payment_date,
             installment_amount,
             installment_type,
-            due_date,
-            payment_date,
             payment_amount,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
@@ -2354,6 +2639,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Billing Invoice",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
             message: "Billing updated successfully",
@@ -2365,8 +2664,8 @@ module.exports = async (req, res) => {
 
       // Edit Invoice Endpoint
       case "editNewInvoice": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editInvoice." });
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editInvoice." });
         }
 
         const authHeader = req.headers.authorization;
@@ -2424,17 +2723,21 @@ module.exports = async (req, res) => {
             id,
             type,
             date,
+            number,
             approver,
             due_date,
             status,
-            tags,
             items: itemsRaw,
-            tax_calculation_method,
+            tax_method,
             ppn_percentage,
             pph_type,
             pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            grand_total,
+            tags,
             memo,
-            filesToDelete,
             vendor_name,
             vendor_address,
             vendor_phone,
@@ -2442,7 +2745,8 @@ module.exports = async (req, res) => {
             freight_in,
             insurance,
             vendor_COA,
-            items_return,
+            total,
+            filesToDelete,
           } = req.body;
 
           // Parse items if they come in string form (because of form-data)
@@ -2537,6 +2841,30 @@ module.exports = async (req, res) => {
             });
           }
 
+          if (existingInvoice && existingInvoice.status === "Completed") {
+            const invoiceNumber = `INV-${existingInvoice.number}`;
+
+            console.log("Deleting journal entries for invoice number:", invoiceNumber);
+
+            const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
+
+            if (deleteJournalError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
+            }
+
+            const { error: deleteError } = await supabase.from("billing_invoice").delete().eq("number", existingInvoice.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+
+            const { error: resetError } = await supabase.from("invoices").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset invoice status: " + resetError.message });
+            }
+          }
+
           // Update items with total_per_item if items are provided
           let updatedItems = existingInvoice.items;
           if (items && items.length > 0) {
@@ -2553,39 +2881,39 @@ module.exports = async (req, res) => {
           }
 
           // Calculate totals
-          const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
-          const ppn = (dpp * (ppn_percentage || existingInvoice.ppn_percentage || 0)) / 100;
-          const pph = (dpp * (pph_percentage || existingInvoice.pph_percentage || 0)) / 100;
-          const grand_total = dpp + ppn - pph;
+          // const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+          // const ppn = (dpp * (ppn_percentage || existingInvoice.ppn_percentage || 0)) / 100;
+          // const pph = (dpp * (pph_percentage || existingInvoice.pph_percentage || 0)) / 100;
+          // const grand_total = dpp + ppn - pph;
 
           // Prepare update data
           const updateData = {
             user_id: user.id,
-            type: type || existingInvoice.type,
-            date: date || existingInvoice.date,
-            approver: approver || existingInvoice.approver,
-            due_date: due_date || existingInvoice.due_date,
-            status: status || existingInvoice.status,
-            tags: tags || existingInvoice.tags,
+            type: type,
+            date: date,
+            number: number,
+            approver: approver,
+            due_date: due_date,
+            status: status,
             items: updatedItems,
-            tax_calculation_method: tax_calculation_method || existingInvoice.tax_calculation_method,
-            ppn_percentage: ppn_percentage || existingInvoice.ppn_percentage,
-            pph_type: pph_type || existingInvoice.pph_type,
-            pph_percentage: pph_percentage || existingInvoice.pph_percentage,
-            dpp,
-            ppn,
-            pph,
-            grand_total,
-            memo,
-            attachment_url: newAttachmentUrls || null,
-            vendor_name,
-            vendor_address,
-            vendor_phone,
-            terms,
-            freight_in,
-            insurance,
-            vendor_COA,
-            items_return,
+            tax_method: tax_method,
+            ppn_percentage: ppn_percentage,
+            pph_type: pph_type,
+            pph_percentage: pph_percentage,
+            dpp: dpp,
+            ppn: ppn,
+            pph: pph,
+            grand_total: grand_total,
+            tags: tags,
+            memo: memo,
+            vendor_name: vendor_name,
+            vendor_address: vendor_address,
+            vendor_phone: vendor_phone,
+            terms: terms,
+            freight_in: freight_in,
+            insurance: insurance,
+            vendor_COA: vendor_COA,
+            total: total,
             updated_at: new Date().toISOString(),
           };
 
@@ -2599,6 +2927,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Invoice",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
             message: "Invoice updated successfully",
@@ -2610,8 +2952,8 @@ module.exports = async (req, res) => {
 
       // Edit Offer Endpoint
       case "editNewOffer": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editOffer." });
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editOffer." });
         }
 
         const authHeader = req.headers.authorization;
@@ -2823,6 +3165,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Offer",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
             message: "Offer updated successfully",
@@ -2834,8 +3190,8 @@ module.exports = async (req, res) => {
 
       // Edit Order Endpoint
       case "editNewOrder": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editOrder." });
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editOrder." });
         }
 
         const authHeader = req.headers.authorization;
@@ -3027,6 +3383,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Order",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
             message: "Order updated successfully",
@@ -3038,8 +3408,8 @@ module.exports = async (req, res) => {
 
       // Edit Request Endpoint
       case "editNewRequest": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editRequest." });
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editRequest." });
         }
 
         const authHeader = req.headers.authorization;
@@ -3093,7 +3463,33 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, type, date, requested_by, urgency, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+          const {
+            id,
+            filesToDelete,
+            type,
+            date,
+            number,
+            requested_by,
+            urgency,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            installment_amount,
+            tax_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            total,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -3187,6 +3583,48 @@ module.exports = async (req, res) => {
             });
           }
 
+          if (existingRequest && existingRequest.status === "Completed") {
+            const { data: billingOrders, error: billingError } = await supabase.from("billing_order").select("number, status").eq("number", existingRequest.number);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing_order: " + billingError.message,
+              });
+            }
+
+            if (billingOrders[0].status === "Completed") {
+              return res.status(200).json({
+                error: true,
+                message: "Billing Order is already Completed",
+              });
+            }
+
+            if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
+              const billingOrderNumber = `ORD-${existingRequest.number}`;
+              const { error: deleteError } = await supabase.from("billing_order").delete().eq("number", billingOrderNumber);
+
+              if (deleteError) {
+                return res.status(500).json({
+                  error: true,
+                  message: "Failed to delete related billing_order: " + deleteError.message,
+                });
+              }
+            }
+
+            const { error: deleteOrderError } = await supabase.from("orders").delete().eq("number", existingRequest.number);
+
+            if (deleteOrderError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related order: " + deleteOrderError.message });
+            }
+
+            const { error: resetError } = await supabase.from("requests").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset request status: " + resetError.message });
+            }
+          }
+
           // Update items with total_per_item if items are provided
           let updatedItems = existingRequest.items;
           if (items && items.length > 0) {
@@ -3203,21 +3641,34 @@ module.exports = async (req, res) => {
           }
 
           // Calculate grand total
-          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
           // Prepare update data
           const updateData = {
             user_id: user.id,
-            type: type || existingRequest.type,
-            date: date || existingRequest.date,
-            requested_by: requested_by || existingRequest.requested_by,
-            urgency: urgency || existingRequest.urgency,
-            due_date: due_date || existingRequest.due_date,
-            status: status || existingRequest.status,
+            type: type,
+            date: date,
+            number: number,
+            requested_by: requested_by,
+            urgency: urgency,
+            due_date: due_date,
+            status: status,
             tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingRequest.tags,
             items: updatedItems,
             grand_total,
             memo,
+            vendor_name: vendor_name,
+            vendor_address: vendor_address,
+            vendor_phone: vendor_phone,
+            installment_amount: installment_amount,
+            tax_method: tax_method,
+            ppn_percentage: ppn_percentage,
+            pph_type: pph_type,
+            pph_percentage: pph_percentage,
+            dpp: dpp,
+            ppn: ppn,
+            pph: pph,
+            total: total,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
@@ -3232,6 +3683,20 @@ module.exports = async (req, res) => {
             });
           }
 
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Request",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
+
           return res.status(200).json({
             error: false,
             message: "Request updated successfully",
@@ -3243,8 +3708,8 @@ module.exports = async (req, res) => {
 
       // Edit Shipment Endpoint
       case "editNewShipment": {
-        if (method !== "PATCH") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use PATCH for editShipment." });
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editShipment." });
         }
 
         const authHeader = req.headers.authorization;
@@ -3298,7 +3763,33 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, type, date, tracking_number, carrier, shipping_date, due_date, status, tags, items: itemsRaw, memo, filesToDelete } = req.body;
+          const {
+            id,
+            type,
+            date,
+            number,
+            tracking_number,
+            carrier,
+            shipping_date,
+            due_date,
+            status,
+            tags,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            vendor_name,
+            vendor_address,
+            vendor_phone,
+            tax_method,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+            total,
+            filesToDelete,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -3408,22 +3899,34 @@ module.exports = async (req, res) => {
           }
 
           // Calculate grand total
-          const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+          // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
           // Prepare update data
           const updateData = {
             user_id: user.id,
-            type: type || existingShipment.type,
-            date: date || existingShipment.date,
-            tracking_number: tracking_number || existingShipment.tracking_number,
-            carrier: carrier || existingShipment.carrier,
-            shipping_date: shipping_date || existingShipment.shipping_date,
-            due_date: due_date || existingShipment.due_date,
-            status: status || existingShipment.status,
+            type: type,
+            date: date,
+            number: number,
+            tracking_number: tracking_number,
+            carrier: carrier,
+            shipping_date: shipping_date,
+            due_date: due_date,
+            status: status,
             tags: tags ? tags.split(",").map((tag) => tag.trim()) : existingShipment.tags,
             items: updatedItems,
-            grand_total,
-            memo,
+            grand_total: grand_total,
+            memo: memo,
+            vendor_name: vendor_name,
+            vendor_address: vendor_address,
+            vendor_phone: vendor_phone,
+            tax_method: tax_method,
+            ppn_percentage: ppn_percentage,
+            pph_type: pph_type,
+            pph_percentage: pph_percentage,
+            dpp: dpp,
+            ppn: ppn,
+            pph: pph,
+            total: total,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
@@ -3436,6 +3939,28 @@ module.exports = async (req, res) => {
               error: true,
               message: "Failed to update shipment: " + updateError.message,
             });
+          }
+
+          if (existingShipment && (existingShipment.status === "Completed" || existingShipment.status === "Received")) {
+            const { error: resetError } = await supabase.from("shipments").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset shipment status: " + resetError.message });
+            }
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Shipment",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(200).json({
@@ -3505,18 +4030,20 @@ module.exports = async (req, res) => {
         try {
           const {
             id,
-            type,
+            filesToDelete,
+            number,
             vendor_name,
             quotation_date,
             valid_until,
             status,
             terms,
             items: itemsRaw,
-            grand_total,
+            total,
             memo,
-            tax_details,
+            type,
             due_date,
             tags,
+            grand_total,
             tax_method,
             dpp,
             ppn,
@@ -3524,8 +4051,11 @@ module.exports = async (req, res) => {
             vendor_address,
             vendor_phone,
             start_date,
-            filesToDelete,
+            ppn_percentage,
+            pph_percentage,
+            pph_type,
           } = req.body;
+
           // Parse items if they come in string form (because of form-data)
           let items;
           try {
@@ -3605,9 +4135,29 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
+          const { data: quotationData, error: quotationError } = await supabase.from("quotations_purchases").select("status, number").eq("id", id).single();
+
+          if (quotationError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch quotation: " + quotationError.message });
+          }
+
+          if (quotationData && quotationData.status === "Completed") {
+            const { error: deleteOfferError } = await supabase.from("offers").delete().eq("number", quotationData.number);
+
+            if (deleteOfferError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related offer: " + deleteOfferError.message });
+            }
+
+            const { error: resetError } = await supabase.from("quotations_purchases").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset quotation status: " + resetError.message });
+            }
+          }
+
           const updatedItems = items.map((item) => {
             const qty = Number(item.qty) || 0;
-            const unit_price = Number(item.unit_price) || 0;
+            const unit_price = Number(item.price) || 0;
             const total_per_item = qty * unit_price;
 
             return {
@@ -3619,21 +4169,19 @@ module.exports = async (req, res) => {
           const { error: updateError } = await supabase
             .from("quotations_purchases")
             .update({
+              number,
+              vendor_name,
               quotation_date,
               valid_until,
               status,
               terms,
               items: updatedItems,
-              // total,
+              total,
               memo,
               type,
-              tax_details,
-              attachment_url: newAttachmentUrls || null,
-              updated_at: new Date().toISOString(),
-              vendor_name,
-              grand_total,
               due_date,
               tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+              grand_total,
               tax_method,
               dpp,
               ppn,
@@ -3641,11 +4189,30 @@ module.exports = async (req, res) => {
               vendor_address,
               vendor_phone,
               start_date,
+              ppn_percentage,
+              pph_percentage,
+              pph_type,
+              attachment_url: newAttachmentUrls || null,
+              updated_at: new Date().toISOString(),
             })
             .eq("id", id);
 
           if (updateError) {
             return res.status(500).json({ error: true, message: "Failed to update quotation: " + updateError.message });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Edit Quotation",
+              http_method: req.method,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
           }
 
           return res.status(200).json({ error: false, message: "Quotation updated successfully" });
@@ -3746,13 +4313,80 @@ module.exports = async (req, res) => {
           });
         }
 
-        const { data: item, error: fetchError } = await supabase.from(table).select("id").eq("id", id);
+        const { data: item, error: fetchError } = await supabase.from(table).select("id, status, number").eq("id", id).single();
+
+        console.log("Fetched item:", item, "Fetch error:", fetchError);
 
         if (fetchError || !item || item.length === 0) {
           return res.status(404).json({
             error: true,
             message: `${action.replace("delete", "")} not found or unauthorized`,
           });
+        }
+
+        if (action === "deleteQuotation") {
+          if (item && item.status === "Completed") {
+            const { error: deleteError } = await supabase.from("offers").delete().eq("number", item.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+          }
+        } else if (action === "deleteRequest") {
+          if (item && item.status === "Completed") {
+            const { error: deleteError } = await supabase.from("orders").delete().eq("number", item.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+
+            const { data: billingOrders, error: billingError } = await supabase.from("billing_order").select("id, number, status").eq("number", item.number);
+
+            console.log("Fetched billing orders:", billingOrders, "Billing error:", billingError);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing_order: " + billingError.message,
+              });
+            }
+
+            if (billingOrders[0].status === "Completed") {
+              return res.status(200).json({
+                error: true,
+                message: "Billing Order is already Completed",
+              });
+            }
+
+            if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
+              const billingOrderNumber = `ORD-${item.number}`;
+
+              const { error: deleteError } = await supabase.from("billing_order").delete().eq("number", billingOrderNumber);
+
+              if (deleteError) {
+                return res.status(500).json({
+                  error: true,
+                  message: "Failed to delete related billing_order: " + deleteError.message,
+                });
+              }
+            }
+          }
+        } else if (action === "deleteInvoice") {
+          if (item && item.status === "Completed") {
+            const invoiceNumber = `INV-${item.number}`;
+
+            const { error: deleteError } = await supabase.from("billing_invoice").delete().eq("number", item.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+
+            const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
+
+            if (deleteJournalError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
+            }
+          }
         }
 
         const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
@@ -3762,6 +4396,20 @@ module.exports = async (req, res) => {
             error: true,
             message: `Failed to delete data: ${deleteError.message}`,
           });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: `${action}`,
+            http_method: req.method,
+            deleted_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(200).json({
@@ -4761,11 +5409,11 @@ module.exports = async (req, res) => {
       }
 
       // Approval Billing Payment Invoices Endpoint (Ibaratnya Tombol Bayar)
-      case "sendBillingToCOA": {
+      case "sendBillingInvoiceToCOA": {
         if (method !== "POST") {
           return res.status(405).json({
             error: true,
-            message: "Method not allowed. Use POST for sendBillingToCOA.",
+            message: "Method not allowed. Use POST for sendBillingInvoiceToCOA.",
           });
         }
 
@@ -4817,16 +5465,16 @@ module.exports = async (req, res) => {
 
         const { data: billing, error: billingError } = await supabase
           .from("billing_invoice")
-          .select("items, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type, ppn")
+          .select("items, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_amount, installment_type, ppn, ppn_type")
           .eq("id", id)
           .ilike("status", "pending")
           .single();
 
         if (billingError || !billing) {
-          return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Billing not found or already completed/rejected" });
         }
 
-        const { items: itemsRaw, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_count, installment_amount, installment_type } = billing;
+        const { items: itemsRaw, grand_total, invoice_date, due_date, payment_method, payment_date, payment_COA, vendor_name, vendor_COA, terms, number, installment_amount, installment_type, ppn, ppn_type } = billing;
 
         // Buat journal entry utama
         const { data: journal, error: journalError } = await supabase
@@ -4881,36 +5529,17 @@ module.exports = async (req, res) => {
                 full_pay: payment_date[0]?.full_pay,
               };
             } else if (payment_method === "Partial Payment") {
-              if (installment_count === 1) {
-                paymentDates = {
-                  first_pay: payment_date[0]?.first_pay,
-                  final_pay: payment_date[1]?.final_pay,
-                };
-              } else if (installment_count === 2) {
-                paymentDates = {
-                  first_pay: payment_date[0]?.first_pay,
-                  second_pay: payment_date[1]?.second_pay,
-                  final_pay: payment_date[2]?.final_pay,
-                };
-              } else if (installment_count === 3) {
-                paymentDates = {
-                  first_pay: payment_date[0]?.first_pay,
-                  second_pay: payment_date[1]?.second_pay,
-                  third_pay: payment_date[2]?.third_pay,
-                  final_pay: payment_date[3]?.final_pay,
-                };
-              }
+              if (installment_count >= 1) paymentDates.first_pay = payment_date[0]?.first_pay;
+              if (installment_count >= 2) paymentDates.second_pay = payment_date[1]?.second_pay;
+              if (installment_count >= 3) paymentDates.third_pay = payment_date[2]?.third_pay;
+              if (installment_count >= 4) paymentDates.final_pay = payment_date[3]?.final_pay;
             }
 
             console.log("DEBUG >> built paymentDates object:", paymentDates);
 
             let invoiceDateObj = new Date(invoice_date);
-            let paymentDateObj;
-            if (payment_method === "Full Payment") {
-              paymentDateObj = new Date(paymentDates.full_pay);
-            } else if (payment_method === "Partial Payment") {
-              paymentDateObj = new Date(paymentDates.first_pay);
-            }
+            let paymentDateObj = payment_method === "Full Payment" ? new Date(paymentDates.full_pay) : new Date(paymentDates.first_pay);
+
             const dueDateObj = new Date(due_date);
 
             console.log("DEBUG >> paymentDateObj:", paymentDateObj);
@@ -4940,14 +5569,51 @@ module.exports = async (req, res) => {
           }
         }
 
-        // ====== Prepaid Installment Alerts ======
-        if (installment_count) {
-          console.log("DEBUG >> installment_count:", installment_count);
-          if (installment_count === 3) {
-            alerts.push("Installment 1: Check remaining days for discount eligibility.");
-            alerts.push("Installment 3: Check remaining days for discount eligibility.");
-          } else if (installment_count === 2) {
-            alerts.push("Installment 1: Check remaining days for discount eligibility.");
+        var installment_count = 0;
+
+        // ====== Installment Payment Handling ======
+        let totalPaid = 0;
+
+        if (billing.payment_amount) {
+          totalPaid += Number(billing.payment_amount);
+        }
+
+        if (payment_method === "Full Payment") {
+          installment_count = 1;
+          totalPaid = grand_total;
+
+          alerts.push("Payment fully settled with Full Payment.");
+        } else if (payment_method === "Partial Payment") {
+          let newInstallmentCount = installment_count + 1;
+
+          if (newInstallmentCount > 4) {
+            alerts.push("Installments cannot exceed 3 + Final Payment.");
+          } else {
+            let installmentKey = "";
+            if (newInstallmentCount === 1) installmentKey = "first_pay";
+            else if (newInstallmentCount === 2) installmentKey = "second_pay";
+            else if (newInstallmentCount === 3) installmentKey = "third_pay";
+            else if (newInstallmentCount === 4) installmentKey = "final_pay";
+
+            // Nominal yang dibayar user (input)
+            const newPayment = paid_amount || 0;
+
+            if (installmentKey === "final_pay") {
+              const remaining = grand_total - totalPaid;
+              if (newPayment !== remaining) {
+                alerts.push(`Final payment must be exactly the remaining balance of ${remaining}.`);
+              }
+            }
+
+            // Update installment_count dan totalPaid
+            installment_count = newInstallmentCount;
+            totalPaid += newPayment;
+
+            if (totalPaid < grand_total && installmentKey !== "final_pay") {
+              alerts.push(`Installment ${newInstallmentCount} recorded: ${newPayment}. Remaining balance = ${grand_total - totalPaid}.`);
+            } else if (totalPaid >= grand_total) {
+              alerts.push("All installments completed. Payment is fully settled.");
+            }
           }
         }
 
@@ -4956,16 +5622,10 @@ module.exports = async (req, res) => {
 
         // ====== Loop Items (allocate discount proportionally to inventory) ======
         for (const item of itemsRaw) {
-          const { coa, qty } = item;
+          const { qty } = item;
           const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
           totalInventory += itemDiscount;
         }
-
-        // const { data: billingOrder, error: billingOrderError } = await supabase.from("billing_order").select("number").eq("id", id).ilike("status", "pending").single();
-
-        // if (billingError || !billing) {
-        //   return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
-        // }
 
         // ====== Journal Entries: Full Payment ======
         if (payment_method === "Full Payment") {
@@ -4981,12 +5641,11 @@ module.exports = async (req, res) => {
 
           lineEntries.push({
             journal_entry_id: journal.id,
-            account_code: 160101, 
-            description: "VAT In", 
+            account_code: 160101,
+            description: "VAT In",
             debit: ppn,
             credit: 0,
             user_id: user.id,
-            transaction_number: number,
           });
 
           // Credit Cash & Bank
@@ -5016,13 +5675,22 @@ module.exports = async (req, res) => {
               user_id: user.id,
             });
 
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: 160101,
+              description: "VAT In",
+              debit: ppn,
+              credit: 0,
+              user_id: user.id,
+            });
+
             // Credit Cash & Bank
             lineEntries.push({
               journal_entry_id: journal.id,
               account_code: payment_COA,
               description: "Cash & Bank (Partial Payment)",
               debit: 0,
-              credit: partialAmount,
+              credit: partialAmount + ppn,
               user_id: user.id,
             });
 
@@ -5043,6 +5711,15 @@ module.exports = async (req, res) => {
             description: "Cash & Bank (Discount Allocation)",
             debit: discountPayment,
             credit: 0,
+            user_id: user.id,
+          });
+
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: 160101,
+            description: "VAT In",
+            debit: 0,
+            credit: ppn,
             user_id: user.id,
           });
 
@@ -5111,6 +5788,19 @@ module.exports = async (req, res) => {
         //   .eq("id", billingId)
         //   .select();
 
+        // const { error: logErr } = await supabase.from("activity_logs").insert([
+        //   {
+        //     user_id: user.id,
+        //     endpoint_name: "Approved Billing & Send Billing to COA",
+        //     http_method: req.method,
+        //     updated_at: new Date().toISOString(),
+        //   },
+        // ]);
+
+        // if (logErr) {
+        //   console.error("Failed to log activity:", logErr.message);
+        // }
+
         return res.status(201).json({
           error: false,
           message: "Journal Entries created successfully",
@@ -5119,6 +5809,167 @@ module.exports = async (req, res) => {
             lines: lineEntries,
           },
           alerts: alerts,
+        });
+      }
+
+      // Approval Billing Order Endpoint
+      case "sendBillingOrderToCOA": {
+        if (method !== "POST") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use POST for sendBillingOrderToCOA.",
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        // Get user
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Get user role
+        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        if (profileError || !userProfile) {
+          return res.status(403).json({
+            error: true,
+            message: "Unable to fetch user role or user not found",
+          });
+        }
+
+        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
+
+        const allowedRoles = ["procurement"];
+        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+
+        if (!hasAccess) {
+          return res.status(403).json({
+            error: true,
+            message: "Access denied. You are not authorized to perform this action.",
+          });
+        }
+
+        // Ambil billing order ID
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing Billing Order ID" });
+        }
+        const billingOrderId = String(id);
+
+        // Ambil billing order dari DB
+        const { data: billingOrder, error: billingOrderError } = await supabase.from("billing_order").select("*").eq("id", id).ilike("status", "pending").single();
+
+        if (billingOrderError || !billingOrder) {
+          return res.status(404).json({ error: true, message: "Billing Order not found or already completed" });
+        }
+
+        // Make journal entry
+        const { data: journal, error: journalError } = await supabase
+          .from("journal_entries")
+          .insert({
+            transaction_number: `ORD-${billingOrder.number}`,
+            description: `Journal for Billing Order`,
+            user_id: user.id,
+            entry_date: new Date().toISOString().split("T")[0],
+            created_at: new Date(),
+          })
+          .select()
+          .single();
+
+        if (journalError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create journal entry: " + journalError.message,
+          });
+        }
+
+        const lineEntries = [];
+
+        // Debit Purchase Prepaid Vendor
+        lineEntries.push({
+          journal_entry_id: journal.id,
+          account_code: billingOrder.installment_COA,
+          description: billingOrder.installment_name,
+          debit: billingOrder.installment_amount,
+          credit: 0,
+          user_id: user.id,
+          transaction_number: `ORD-${billingOrder.number}`,
+        });
+
+        lineEntries.push({
+          journal_entry_id: journal.id,
+          account_code: 160101,
+          description: "VAT In",
+          debit: billingOrder.ppn,
+          credit: 0,
+          user_id: user.id,
+          transaction_number: `ORD-${billingOrder.number}`,
+        });
+
+        // Credit Cash & Bank
+        lineEntries.push({
+          journal_entry_id: journal.id,
+          account_code: billingOrder.payment_COA,
+          description: billingOrder.payment_name,
+          debit: 0,
+          credit: billingOrder.paid_amount,
+          user_id: user.id,
+          transaction_number: `ORD-${billingOrder.number}`,
+        });
+
+        // Insert ke Supabase
+        const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
+
+        if (insertError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to insert journal lines: " + insertError.message,
+          });
+        }
+
+        // Update status
+        const { error: updateStatusError } = await supabase.from("billing_order").update({ status: "Completed" }).eq("id", id);
+
+        if (updateStatusError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update billing status: " + updateError.message,
+          });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Approved Billing Order & Send Billing Order to COA",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
+        }
+
+        return res.status(201).json({
+          error: false,
+          message: "Billing order approved successfully",
+          data: {
+            journal,
+            lines: lineEntries,
+          },
         });
       }
 
@@ -5179,13 +6030,15 @@ module.exports = async (req, res) => {
         const invoiceId = String(id);
 
         // 1. Ambil invoice dari DB
-        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number, installment_name, installment_COA, installment_amount").eq("id", id).ilike("status", "pending").single();
+        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (invoiceError || !invoice) {
-          return res.status(404).json({ error: true, message: "Invoice not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Invoice not found or already completed/rejected" });
         }
 
-        const { items, freight_in, insurance, ppn, ppn_percentage, vendor_COA, vendor_name, number, installment_name, installment_COA, installment_amount } = invoice;
+        let lineEntries = [];
+
+        const { items, freight_in, insurance, vendor_COA, vendor_name, number } = invoice;
 
         // 2. Hitung total qty semua item
         const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
@@ -5200,7 +6053,7 @@ module.exports = async (req, res) => {
             {
               entry_date: new Date().toISOString().split("T")[0],
               description: `Create Journal Entries for Purchase with ID = ${id}`,
-              transaction_number: number,
+              transaction_number: `INV-${number}`,
               user_id: user.id,
             },
           ])
@@ -5215,15 +6068,15 @@ module.exports = async (req, res) => {
         }
 
         // 4. Hitung nilai inventory per item
-        const lineEntries = [];
         let totalInventory = 0;
 
         for (const item of items) {
-          const { coa, qty, price, returnVal, disc_item, disc_item_type, item_name } = item;
+          const { coa, item_name, sku, qty, price, disc_item, disc_item_type, return_unit } = item;
 
           // Hitung gross & diskon per item
           let discountedPrice;
-          let gross;
+          let gross = 0;
+          let returnAmount = 0;
 
           if (disc_item_type === "percentage") {
             discountedPrice = price - (price * disc_item) / 100;
@@ -5232,60 +6085,64 @@ module.exports = async (req, res) => {
             gross = (price + freightShare + insuranceShare) * qty - disc_item;
           }
 
+          if (return_unit > 0) {
+            let returnedDiscountedPrice = disc_item_type === "percentage" ? price - (price * disc_item) / 100 : price - (disc_item_type === "rupiah" ? disc_item / qty : 0);
+
+            console.log("Ini returnedDiscountedPrice = ", returnedDiscountedPrice);
+
+            returnAmount = (returnedDiscountedPrice + (freightShare || 0) + (insuranceShare || 0)) * return_unit;
+          }
+
           // Hitung net
-          // const net = gross - discount + penalty - (returnVal || 0);
-          const net = gross - (returnVal || 0);
+          const net = gross - returnAmount;
 
           totalInventory += net;
 
           lineEntries.push({
             journal_entry_id: journal.id,
-            account_code: coa, // langsung ambil dari item.coa
-            description: `Inventory - ${item_name}`, // dari item_name JSON
-            debit: net,
+            account_code: coa,
+            description: `Inventory - ${item_name}`,
+            debit: Math.round(net),
             credit: 0,
             user_id: user.id,
-            transaction_number: number,
+            transaction_number: `INV-${number}`,
           });
         }
 
         // 5. Kredit: AP - Vendor
         const totalDebit = totalInventory;
-        // const totalDebit = totalInventory + (ppn || 0);
         lineEntries.push({
           journal_entry_id: journal.id,
-          account_code: vendor_COA, // mapping ke COA vendor
+          account_code: vendor_COA,
           description: vendor_name,
           debit: 0,
-          credit: totalDebit,
+          credit: Math.round(totalDebit),
           user_id: user.id,
-          transaction_number: number,
+          transaction_number: `INV-${number}`,
         });
 
-
         // 6. Kredit: Installment - Vendor
-        const {data: sameNumberOrders, error: sameNumberError } = await supabase
-          .from("billing_order")
-          .select("id, number, items")
-          .eq("number", number);
+        const { data: sameNumberOrders, error: sameNumberError } = await supabase.from("billing_order").select("id, installment_name, installment_COA, installment_amount").eq("number", number);
 
-          if (sameNumberError) {
-            return res.status(500).json({ error: true, message: "Failed to check billing_order by number" });
-          }
-
-        if (sameNumberOrders && sameNumberOrders.length > 0) {
-          lineEntries.push({
-            journal_entry_id: journal.id,
-            account_code: installment_COA, 
-            description: installment_name,
-            debit: 0,
-            credit: installment_amount,
-            user_id: user.id,
-            transaction_number: number,
-          });
+        if (sameNumberError) {
+          return res.status(500).json({ error: true, message: "Failed to check billing_order by number" });
         }
 
-        // 7. Insert journal lines
+        if (sameNumberOrders && sameNumberOrders.length > 0) {
+          for (const order of sameNumberOrders) {
+            const { installment_COA, installment_name, installment_amount } = order;
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: installment_COA,
+              description: installment_name,
+              debit: 0,
+              credit: Math.round(installment_amount),
+              user_id: user.id,
+              transaction_number: `INV-${number}`,
+            });
+          }
+        }
+
         const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
 
         if (insertError) {
@@ -5295,15 +6152,59 @@ module.exports = async (req, res) => {
           });
         }
 
+        const { error } = await supabase.from("billing_invoice").insert([
+          {
+            user_id: user.id,
+            vendor_name: invoice.vendor_name,
+            invoice_date: invoice.date,
+            terms: invoice.terms,
+            grand_total: invoice.grand_total,
+            items: invoice.items,
+            type: "Billing Invoice",
+            number: invoice.number,
+            status: "Pending",
+            due_date: invoice.due_date,
+            ppn: invoice.ppn,
+            pph_type: invoice.pph_type,
+            pph: invoice.pph,
+            dpp: invoice.dpp,
+            tax_method: invoice.tax_method,
+            ppn_percentage: invoice.ppn_percentage,
+            pph_percentage: invoice.pph_percentage,
+            total: invoice.total,
+          },
+        ]);
+
+        if (error) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to create billing summary: " + error.message,
+          });
+        }
+
         const { data: updated, error: updateStatusError } = await supabase.from("invoices").update({ status: "Completed" }).eq("id", invoiceId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
         }
 
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Approved Invoice, Send Invoice to COA, & Create Billing Summary Invoice",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
+        }
+
         return res.status(201).json({
           error: false,
-          message: "Journal Entries created successfully",
+          message: "Invoices approved successfully",
           data: {
             journal,
             lines: lineEntries,
@@ -5312,9 +6213,9 @@ module.exports = async (req, res) => {
       }
 
       // Approval Shipment Endpoint
-      case "sendShipmentToInvoice": {
+      case "sendShipment": {
         if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendShipmentToInvoice." });
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendShipment." });
         }
 
         const authHeader = req.headers.authorization;
@@ -5372,160 +6273,36 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get shipment with status "Pending"
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
 
         if (fetchError || !shipment) {
-          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Shipment not found or already completed/rejected" });
         }
 
         const shipmentId = String(id);
 
         // 2. Update the shipment status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Completed" }).eq("id", shipmentId).select();
+        let newStatus;
 
-        if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
-        }
-
-        // // 3. Generate new invoice number (similar with addNewInvoice endpoint)
-        // const shipmentDate = new Date(shipment.date);
-        // const shipmentMonth = shipmentDate.getMonth() + 1;
-        // const shipmentYear = shipmentDate.getFullYear();
-        // const prefix = `${shipmentYear}${String(shipmentMonth).padStart(2, "0")}`;
-        // const prefixInt = parseInt(prefix + "0", 10);
-        // const nextPrefixInt = parseInt(prefix + "9999", 10);
-
-        // const { data: latestInvoice, error: invoiceError } = await supabase.from("invoices").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
-
-        // if (invoiceError) {
-        //   return res.status(500).json({
-        //     error: true,
-        //     message: "Failed to create invoice from shipment: " + invoiceError.message,
-        //   });
-        // }
-
-        // let counter = 1;
-        // if (latestInvoice && latestInvoice.length > 0) {
-        //   const lastNumber = latestInvoice[0].number.toString();
-        //   const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-        //   counter = lastCounter + 1;
-        // }
-
-        // const nextNumber = parseInt(`${prefix}${counter}`, 10);
-
-        // 4. Calculate again the grand total (optional)
-        const updatedItems = shipment.items.map((item) => {
-          const qty = Number(item.qty) || 0;
-          const unit_price = Number(item.price) || 0;
-          return {
-            ...item,
-            total_per_item: qty * unit_price,
-          };
-        });
-
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
-
-        // 5. Insert to invoices
-        const { error: insertError } = await supabase.from("invoices").insert([
-          {
-            user_id: user.id,
-            type: "Invoice",
-            date: shipment.date,
-            // number: nextNumber,
-            number: shipment.number,
-            approver: "",
-            due_date: shipment.due_date,
-            status: "Pending",
-            tax_calculation_method: true,
-            tags: shipment.tags,
-            items: updatedItems,
-            grand_total: shipment.grand_total,
-            memo: shipment.memo,
-            attachment_url: shipment.attachment_url,
-          },
-        ]);
-
-        if (insertError) {
-          return res.status(500).json({ error: true, message: "Failed to insert invoice: " + insertError.message });
-        }
-
-        return res.status(201).json({ error: false, message: "Invoice created from shipment successfully" });
-      }
-
-      // Approval Shipment Endpoint
-      case "sendShipmentToInvoice": {
-        if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendShipmentToInvoice." });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // Get user roles from database
-        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        if (profileError || !userProfile) {
-          return res.status(403).json({
-            error: true,
-            message: "Unable to fetch user role or user not found",
-          });
-        }
-
-        if (!userProfile.role) {
+        if (shipment.status === "Pending") {
+          newStatus = "Received";
+        } else if (shipment.status === "Received") {
+          newStatus = "Completed";
+        } else {
           return res.status(400).json({
             error: true,
-            message: "User role is missing or null. Please update your role first.",
+            message: `Shipment already marked as ${shipmentData.status}`,
           });
         }
 
-        // Convert role string to array, remove spaces, and lowercase
-        const userRoles = userProfile.role.split(",").map((r) => r.trim().toLowerCase());
-
-        const allowedRoles = ["procurement"];
-
-        // Check if at least one role is allowed
-        const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
-
-        if (!hasAccess) {
-          return res.status(403).json({
-            error: true,
-            message: "Access denied. You are not authorized to perform this action.",
-          });
-        }
-
-        const { id } = req.body;
-        if (!id) {
-          return res.status(400).json({ error: true, message: "Missing Shipment ID" });
-        }
-
-        // 1. Get shipment with status "Pending"
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
-
-        if (fetchError || !shipment) {
-          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
-        }
-
-        const shipmentId = String(id);
-
-        // 2. Update the shipment status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Completed" }).eq("id", shipmentId).select();
+        // Update status di database
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: newStatus }).eq("id", shipmentId).select();
 
         if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update shipment status: " + updateStatusError.message,
+          });
         }
 
         // // 3. Generate new invoice number (similar with addNewInvoice endpoint)
@@ -5564,33 +6341,23 @@ module.exports = async (req, res) => {
           };
         });
 
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // 5. Insert to invoices
-        const { error: insertError } = await supabase.from("invoices").insert([
+        const { error: logErr } = await supabase.from("activity_logs").insert([
           {
             user_id: user.id,
-            type: "Invoice",
-            date: shipment.date,
-            // number: nextNumber,
-            number: shipment.number,
-            approver: "",
-            due_date: shipment.due_date,
-            status: "Pending",
-            tax_calculation_method: true,
-            tags: shipment.tags,
-            items: updatedItems,
-            grand_total: shipment.grand_total,
-            memo: shipment.memo,
-            attachment_url: shipment.attachment_url,
+            user_email: user.email,
+            endpoint_name: "Approved Shipment Data",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
           },
         ]);
 
-        if (insertError) {
-          return res.status(500).json({ error: true, message: "Failed to insert invoice: " + insertError.message });
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
-        return res.status(201).json({ error: false, message: "Invoice created from shipment successfully" });
+        return res.status(201).json({ error: false, message: "Shipment approved successfully" });
       }
 
       // Approval Request Endpoint
@@ -5653,49 +6420,42 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Request ID" });
         }
 
-        // 1. Get request with status "Pending"
+        // Get request with status "Pending"
         const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !request) {
-          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Request not found or already completed/rejected" });
         }
 
         const requestId = String(id);
 
-        // 2. Update the request status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", requestId).select();
+        // // Generate new order number (similar with addNewOrder endpoint)
+        // const requestDate = new Date(request.date);
+        // const requestMonth = requestDate.getMonth() + 1;
+        // const requestYear = requestDate.getFullYear();
+        // const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
+        // const prefixInt = parseInt(prefix + "0", 10);
+        // const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
-        }
+        // const { data: latestOrder, error: orderError } = await supabase.from("orders").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
-        // 3. Generate new order number (similar with addNewOrder endpoint)
-        const requestDate = new Date(request.date);
-        const requestMonth = requestDate.getMonth() + 1;
-        const requestYear = requestDate.getFullYear();
-        const prefix = `${requestYear}${String(requestMonth).padStart(2, "0")}`;
-        const prefixInt = parseInt(prefix + "0", 10);
-        const nextPrefixInt = parseInt(prefix + "9999", 10);
+        // if (orderError) {
+        //   return res.status(500).json({
+        //     error: true,
+        //     message: "Failed to create order from request: " + orderError.message,
+        //   });
+        // }
 
-        const { data: latestOrder, error: orderError } = await supabase.from("orders").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // let counter = 1;
+        // if (latestOrder && latestOrder.length > 0) {
+        //   const lastNumber = latestOrder[0].number.toString();
+        //   const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
+        //   counter = lastCounter + 1;
+        // }
 
-        if (orderError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to create order from request: " + orderError.message,
-          });
-        }
+        // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
-        let counter = 1;
-        if (latestOrder && latestOrder.length > 0) {
-          const lastNumber = latestOrder[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
-        }
-
-        const nextNumber = parseInt(`${prefix}${counter}`, 10);
-
-        // 4. Calculate again the grand total (optional)
+        // Calculate again the grand total (optional)
         const updatedItems = request.items.map((item) => {
           const qty = Number(item.qty) || 0;
           const unit_price = Number(item.price) || 0;
@@ -5705,24 +6465,37 @@ module.exports = async (req, res) => {
           };
         });
 
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // 5. Insert to orders
+        // Insert to orders
         const { error: insertError } = await supabase.from("orders").insert([
           {
             user_id: user.id,
             type: "Order",
             date: request.date,
-            // number: nextNumber,
             number: request.number,
             orders_date: request.date,
             due_date: request.due_date,
-            status: "Pending",
+            status: "Completed",
             tags: request.tags,
             items: updatedItems,
             grand_total: request.grand_total,
-            memo: request.memo,
+            memo: "Catatan Add Order",
+            vendor_name: request.vendor_name,
+            vendor_address: request.vendor_address,
+            vendor_phone: request.vendor_phone,
+            installment_amount: request.installment_amount,
+            tax_method: request.tax_method,
+            ppn_percentage: request.ppn_percentage,
+            pph_type: request.pph_type,
+            pph_percentage: request.pph_percentage,
+            dpp: request.dpp,
+            ppn: request.ppn,
+            pph: request.pph,
+            total: request.total,
             attachment_url: request.attachment_url,
+            ordered_by: request.requested_by,
+            urgency: request.urgency,
           },
         ]);
 
@@ -5730,134 +6503,87 @@ module.exports = async (req, res) => {
           return res.status(500).json({ error: true, message: "Failed to insert order: " + insertError.message });
         }
 
-        return res.status(201).json({ error: false, message: "Order created from request successfully" });
-      }
+        if (request.installment_amount !== null && request.installment_amount !== 0) {
+          let dpp = 0;
+          let ppn = 0;
 
-      // Approval Offer Endpoint
-      case "sendOfferToRequest": {
-        if (method !== "POST") {
-          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for sendOfferToRequest." });
+          const grandTotal = Number(request.grand_total) || 0;
+          const ppnRate = Number(request.ppn_percentage) / 100;
+
+          if (request.tax_method === "Before Calculate") {
+            dpp = (11 / 12) * request.installment_amount;
+            ppn = Math.round(ppnRate * dpp);
+          } else if (request.tax_method === "After Calculate") {
+            dpp = request.installment_amount / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+          }
+
+          // Hitung total yang dibayar (DP atau cicilan)
+          const paid_amount = Math.round(Number(request.installment_amount) + ppn);
+
+          // Hitung sisa saldo pembayaran
+          const remain_balance = Math.round(grandTotal - paid_amount);
+
+          const { error } = await supabase.from("billing_order").insert([
+            {
+              user_id: user.id,
+              vendor_name: request.vendor_name,
+              order_date: request.date,
+              number: request.number,
+              type: "Billing Order",
+              items: request.items,
+              installment_amount: request.installment_amount,
+              ppn,
+              remain_balance,
+              paid_amount,
+              status: "Pending",
+            },
+          ]);
+
+          if (error) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to create billing summary: " + error.message,
+            });
+          }
+
+          const { error: logErr } = await supabase.from("activity_logs").insert([
+            {
+              user_id: user.id,
+              user_email: user.email,
+              endpoint_name: "Add New Billing Order",
+              http_method: req.method,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (logErr) {
+            console.error("Failed to log activity:", logErr.message);
+          }
         }
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({ error: true, message: "No authorization header" });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({ error: true, message: "Invalid or expired token" });
-        }
-
-        // Get user roles from database
-        const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        if (profileError || !userProfile) {
-          return res.status(403).json({
-            error: true,
-            message: "Unable to fetch user role or user not found",
-          });
-        }
-
-        // Check if the user role is among those permitted
-        const allowedRoles = ["procurement"];
-        if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-          return res.status(403).json({
-            error: true,
-            message: "Access denied. You are not authorized to perform this action.",
-          });
-        }
-
-        const { id } = req.body;
-        if (!id) {
-          return res.status(400).json({ error: true, message: "Missing Request ID" });
-        }
-
-        // 1. Get offer with status "Pending"
-        const { data: offer, error: fetchError } = await supabase.from("offers").select("*").eq("id", id).ilike("status", "pending").single();
-
-        if (fetchError || !offer) {
-          return res.status(404).json({ error: true, message: "Offer not found or already completed/cancelled" });
-        }
-
-        const offerId = String(id);
-
-        // 2. Update the offer status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("offers").update({ status: "Completed" }).eq("id", offerId).select();
+        // Update the request status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", requestId).select();
 
         if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update offer status: " + updateStatusError.message });
+          return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
         }
 
-        // 3. Generate new request number (similar with addNewRequest endpoint)
-        const offerDate = new Date(offer.date);
-        const offerMonth = offerDate.getMonth() + 1;
-        const offerYear = offerDate.getFullYear();
-        const prefix = `${offerYear}${String(offerMonth).padStart(2, "0")}`;
-        const prefixInt = parseInt(prefix + "0", 10);
-        const nextPrefixInt = parseInt(prefix + "9999", 10);
-
-        const { data: latestRequest, error: requestError } = await supabase.from("requests").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
-
-        if (requestError) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to create request from offer: " + requestError.message,
-          });
-        }
-
-        let counter = 1;
-        if (latestRequest && latestRequest.length > 0) {
-          const lastNumber = latestRequest[0].number.toString();
-          const lastCounter = parseInt(lastNumber.slice(prefix.length), 10);
-          counter = lastCounter + 1;
-        }
-
-        const nextNumber = parseInt(`${prefix}${counter}`, 10);
-
-        // 4. Calculate again the grand total (optional)
-        const updatedItems = offer.items.map((item) => {
-          const qty = Number(item.qty) || 0;
-          const unit_price = Number(item.price) || 0;
-          return {
-            ...item,
-            total_per_item: qty * unit_price,
-          };
-        });
-
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
-
-        // 5. Insert to requests
-        const { error: insertError } = await supabase.from("requests").insert([
+        const { error: logErr } = await supabase.from("activity_logs").insert([
           {
             user_id: user.id,
-            type: "Request",
-            date: offer.date,
-            number: nextNumber,
-            requested_by: "",
-            urgency: "Low",
-            due_date: offer.due_date,
-            status: "Pending",
-            tags: offer.tags,
-            items: updatedItems,
-            grand_total: offer.grand_total,
-            memo: offer.memo,
-            attachment_url: offer.attachment_url,
+            user_email: user.email,
+            endpoint_name: "Approved Request Data",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
           },
         ]);
 
-        if (insertError) {
-          return res.status(500).json({ error: true, message: "Failed to insert request: " + insertError.message });
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
-        return res.status(201).json({ error: false, message: "Request created from offer successfully" });
+        return res.status(201).json({ error: false, message: "Order created from request successfully" });
       }
 
       // Approval Quotation Endpoint
@@ -5920,23 +6646,16 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Request ID" });
         }
 
-        // 1. Get quotation with status "Pending"
+        // Get quotation with status "Pending"
         const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !quotation) {
-          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Quotation not found or already completed/rejected" });
         }
 
         const quotationId = String(id);
 
-        // 2. Update the quotation status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Completed" }).eq("id", quotationId).select();
-
-        if (updateStatusError) {
-          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
-        }
-
-        // // 3. Generate new offer number (similar with addNewOffer endpoint)
+        // // Generate new offer number (similar with addNewOffer endpoint)
         // const quotationDate = new Date(quotation.quotation_date);
         // const quotationMonth = quotationDate.getMonth() + 1;
         // const quotationYear = quotationDate.getFullYear();
@@ -5962,7 +6681,7 @@ module.exports = async (req, res) => {
 
         // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
-        // 4. Calculate again the grand total (optional)
+        // Calculate again the grand total (optional)
         const updatedItems = quotation.items.map((item) => {
           const qty = Number(item.qty) || 0;
           const unit_price = Number(item.price) || 0;
@@ -5972,30 +6691,62 @@ module.exports = async (req, res) => {
           };
         });
 
-        const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
+        // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // 5. Insert to offers
+        // Insert to offers
         const { error: insertError } = await supabase.from("offers").insert([
           {
             user_id: user.id,
-            type: "Offer",
-            date: quotation.quotation_date,
-            // number: nextNumber,
             number: quotation.number,
-            discount_terms: null,
-            expiry_date: null,
-            due_date: quotation.due_date,
-            status: "Pending",
-            tags: quotation.tags,
+            vendor_name: quotation.vendor_name,
+            date: quotation.quotation_date,
+            expiry_date: quotation.valid_until,
+            status: "Completed",
+            discount_terms: quotation.terms,
             items: updatedItems,
+            total: quotation.total,
+            memo: "Catatan Add Offer",
+            type: "Offer",
+            due_date: quotation.due_date,
+            tags: quotation.tags,
             grand_total: quotation.grand_total,
-            memo: quotation.memo,
+            tax_method: quotation.tax_method,
+            dpp: quotation.dpp,
+            ppn: quotation.ppn,
+            pph: quotation.pph,
+            vendor_address: quotation.vendor_address,
+            vendor_phone: quotation.vendor_phone,
+            start_date: quotation.start_date,
+            ppn_percentage: quotation.ppn_percentage,
+            pph_percentage: quotation.pph_percentage,
+            pph_type: quotation.pph_type,
             attachment_url: quotation.attachment_url,
           },
         ]);
 
         if (insertError) {
           return res.status(500).json({ error: true, message: "Failed to insert offer: " + insertError.message });
+        }
+
+        // Update the quotation status to "Completed"
+        const { data: updated, error: updateStatusError } = await supabase.from("quotations_purchases").update({ status: "Completed" }).eq("id", quotationId).select();
+
+        if (updateStatusError) {
+          return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Approved Quotation Data",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Offer created from quotation successfully" });
@@ -6065,7 +6816,7 @@ module.exports = async (req, res) => {
         const { data: billing, error: fetchError } = await supabase.from("billing_invoice").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !billing) {
-          return res.status(404).json({ error: true, message: "Billing not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Billing not found or already completed/rejected" });
         }
 
         const billingId = String(id);
@@ -6075,6 +6826,20 @@ module.exports = async (req, res) => {
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update billing status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Rejected Billing Data",
+            http_method: req.method,
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Billing has been rejected successfully" });
@@ -6144,7 +6909,7 @@ module.exports = async (req, res) => {
         const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !invoice) {
-          return res.status(404).json({ error: true, message: "Invoice not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Invoice not found or already completed/rejected" });
         }
 
         const invoiceId = String(id);
@@ -6154,6 +6919,20 @@ module.exports = async (req, res) => {
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Rejected Invoice Data",
+            http_method: req.method,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Invoice has been rejected successfully" });
@@ -6220,10 +6999,10 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get shipments with status "Pending"
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
 
         if (fetchError || !shipment) {
-          return res.status(404).json({ error: true, message: "Shipment not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Shipment not found or its status does not allow further updates" });
         }
 
         const shipmentId = String(id);
@@ -6233,6 +7012,20 @@ module.exports = async (req, res) => {
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Rejected Shipment Data",
+            http_method: req.method,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Shipment has been rejected successfully" });
@@ -6302,7 +7095,7 @@ module.exports = async (req, res) => {
         const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !request) {
-          return res.status(404).json({ error: true, message: "Request not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Request not found or already completed/rejected" });
         }
 
         const requestId = String(id);
@@ -6312,6 +7105,20 @@ module.exports = async (req, res) => {
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Rejected Request Data",
+            http_method: req.method,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Request has been rejected successfully" });
@@ -6381,7 +7188,7 @@ module.exports = async (req, res) => {
         const { data: quotation, error: fetchError } = await supabase.from("quotations_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !quotation) {
-          return res.status(404).json({ error: true, message: "Quotation not found or already completed/cancelled" });
+          return res.status(404).json({ error: true, message: "Quotation not found or already completed/rejected" });
         }
 
         const quotationId = String(id);
@@ -6391,6 +7198,20 @@ module.exports = async (req, res) => {
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update quotation status: " + updateStatusError.message });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: "Rejected Quotation Data",
+            http_method: req.method,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
         }
 
         return res.status(201).json({ error: false, message: "Quotation has been rejected successfully" });
@@ -6608,7 +7429,7 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { type, date, approver, due_date, status, tags, items, tax_calculation_method, ppn_percentage, pph_type, pph_percentage, grand_total } = req.body;
+        const { type, date, approver, due_date, status, tags, items, tax_method, ppn_percentage, pph_type, pph_percentage, grand_total } = req.body;
 
         if (!type || !date || !approver || !due_date || !status || !items || items.length === 0 || !ppn_percentage || !pph_type || !pph_percentage || !grand_total) {
           return res.status(400).json({
@@ -6680,7 +7501,7 @@ module.exports = async (req, res) => {
             status,
             tags,
             items: updatedItems,
-            tax_calculation_method,
+            tax_method,
             ppn_percentage,
             pph_type,
             pph_percentage,
@@ -7250,7 +8071,7 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { id, type, date, approver, due_date, status, tags, items, tax_calculation_method, ppn_percentage, pph_type, pph_percentage } = req.body;
+        const { id, type, date, approver, due_date, status, tags, items, tax_method, ppn_percentage, pph_type, pph_percentage } = req.body;
 
         if (!id) {
           return res.status(400).json({
@@ -7300,7 +8121,7 @@ module.exports = async (req, res) => {
           status: status || existingInvoice.status,
           tags: tags || existingInvoice.tags,
           items: updatedItems,
-          tax_calculation_method: tax_calculation_method || existingInvoice.tax_calculation_method,
+          tax_method: tax_method || existingInvoice.tax_method,
           ppn_percentage: ppn_percentage || existingInvoice.ppn_percentage,
           pph_type: pph_type || existingInvoice.pph_type,
           pph_percentage: pph_percentage || existingInvoice.pph_percentage,
@@ -7820,893 +8641,6 @@ module.exports = async (req, res) => {
           message: "Shipment updated successfully",
         });
       }
-
-      // =============================================================
-      // >>>>>>>>>>>>>>>>>  EXAMPLE FOR FLUENTREPORT  <<<<<<<<<<<<<
-      // =============================================================
-
-      // //   Get Invoice Report Endpoint
-      // case "getInvoiceReport": {
-      //   if (method !== "GET") {
-      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInvoiceReport." });
-      //   }
-
-      //   const authHeader = req.headers.authorization;
-      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-      //   const token = authHeader.split(" ")[1];
-      //   const supabase = getSupabaseWithToken(token);
-
-      //   const {
-      //     data: { user },
-      //     error: userError,
-      //   } = await supabase.auth.getUser(token);
-
-      //   if (userError || !user) {
-      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
-      //   }
-
-      //   const invoiceId = req.query.id;
-      //   if (!invoiceId) return res.status(400).json({ error: true, message: "Missing invoice id" });
-
-      //   const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
-
-      //   if (fetchError || !invoice) {
-      //     return res.status(404).json({ error: true, message: "Invoice not found" });
-      //   }
-
-      //   // Format invoice number with proper prefix and padding
-      //   const formattedInvoiceNumber = `INV-${String(invoice.number).padStart(5, "0")}`;
-
-      //   // Format currency function
-      //   const formatCurrency = (amount) => {
-      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
-      //   };
-
-      //   // Format date function
-      //   const formatDate = (dateString) => {
-      //     const date = new Date(dateString);
-      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-      //   };
-
-      //   const { Report } = require("fluentreports");
-      //   const stream = require("stream");
-      //   const pdfStream = new stream.PassThrough();
-
-      //   // Create report with A4 page size
-      //   const report = new Report(pdfStream, {
-      //     paper: "A4",
-      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
-      //   });
-
-      //   // Header Section
-      //   report.pageHeader((rpt) => {
-      //     // Invoice Summary Section
-      //     rpt.print("Invoice Summary", { x: 40, y: 40, fontSize: 20, bold: true });
-
-      //     // Status badge (top right)
-      //     if (invoice.status === "Completed" || invoice.status === "Paid") {
-      //       rpt.print("PAID", { x: 500, y: 40, fontSize: 12, color: "green" });
-      //     }
-
-      //     // Invoice details grid
-      //     rpt.print("Invoice Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formattedInvoiceNumber, { x: 40, y: 95, fontSize: 12 });
-
-      //     rpt.print("Invoice Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(invoice.date), { x: 250, y: 95, fontSize: 12 });
-
-      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(invoice.due_date), { x: 460, y: 95, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
-
-      //     // Vendor Information Section
-      //     rpt.print("Vendor Information", { x: 40, y: 140, fontSize: 20, bold: true });
-
-      //     rpt.print("Vendor Name", { x: 40, y: 170, fontSize: 10, color: "gray" });
-      //     rpt.print("Global Supplies Co.", { x: 40, y: 185, fontSize: 12 });
-
-      //     rpt.print("Vendor ID", { x: 40, y: 210, fontSize: 10, color: "gray" });
-      //     rpt.print("V-2779", { x: 40, y: 225, fontSize: 12 });
-
-      //     rpt.print("Contact Information", { x: 40, y: 250, fontSize: 10, color: "gray" });
-      //     rpt.print("accounts@globalsupplies.com", { x: 40, y: 265, fontSize: 12 });
-      //     rpt.print("+1 (555) 987-6543", { x: 40, y: 280, fontSize: 12 });
-
-      //     rpt.print("Address", { x: 40, y: 305, fontSize: 10, color: "gray" });
-      //     rpt.print("1234 Vendor Street", { x: 40, y: 320, fontSize: 12 });
-      //     rpt.print("Supplier City, SC 54321", { x: 40, y: 335, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
-
-      //     // Invoice Items Section
-      //     rpt.print("Invoice Items", { x: 40, y: 385, fontSize: 20, bold: true });
-
-      //     // Items table header
-      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
-
-      //     // Separator line below header
-      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
-      //   });
-
-      //   // Detail rows
-      //   let currentY = 445;
-      //   const pageHeightLimit = 780;
-      //   report.detail((rpt, data) => {
-      //     if (currentY > pageHeightLimit) {
-      //       rpt.newPage(); // Pindah ke halaman baru
-      //       currentY = 40; // Reset posisi Y di halaman baru (sesuai margin top)
-      //     }
-      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
-      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
-
-      //     currentY += 25;
-      //   });
-
-      //   // Set data source
-      //   report.data(invoice.items);
-
-      //   // Footer with totals
-      //   report.finalSummary((rpt) => {
-      //     // Totals section - start right after the last item
-      //     const startY = currentY + 55;
-
-      //     // Totals section
-      //     rpt.print("Subtotal", { x: 380, y: startY, fontSize: 12 });
-      //     rpt.print(formatCurrency(invoice.dpp), { x: 510, y: startY, fontSize: 12 });
-
-      //     rpt.print(`Tax (${invoice.ppn_percentage}%)`, { x: 380, y: startY + 25, fontSize: 12 });
-      //     rpt.print(formatCurrency(invoice.ppn), { x: 510, y: startY + 25, fontSize: 12 });
-
-      //     rpt.print("Total", { x: 380, y: startY + 50, fontSize: 12, bold: true });
-      //     rpt.print(formatCurrency(invoice.grand_total), { x: 510, y: startY + 50, fontSize: 12, bold: true });
-
-      //     rpt.print("Balance Due", { x: 380, y: startY + 75, fontSize: 12 });
-      //     rpt.print(formatCurrency(0), { x: 510, y: startY + 75, fontSize: 12, color: "green" });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
-
-      //     // Payment Information Section
-      //     rpt.print("Payment Information", { x: 40, y: startY + 120, fontSize: 20, bold: true });
-
-      //     rpt.print("Payment Terms", { x: 40, y: startY + 150, fontSize: 10, color: "gray" });
-      //     rpt.print("Net 30", { x: 40, y: startY + 165, fontSize: 12 });
-
-      //     rpt.print("Payment Method", { x: 40, y: startY + 190, fontSize: 10, color: "gray" });
-      //     rpt.print("Bank Transfer", { x: 40, y: startY + 205, fontSize: 12 });
-
-      //     rpt.print("Bank Account", { x: 40, y: startY + 230, fontSize: 10, color: "gray" });
-      //     rpt.print("Global Supplies Bank Account", { x: 40, y: startY + 245, fontSize: 12 });
-      //     rpt.print("Account #: XXXX-XXXX-1234", { x: 40, y: startY + 260, fontSize: 12 });
-
-      //     rpt.print("Payment Status", { x: 40, y: startY + 285, fontSize: 10, color: "gray" });
-      //     rpt.print("Paid", { x: 40, y: startY + 300, fontSize: 12, color: "green" });
-      //     rpt.print("Paid on Jun 5, 2025", { x: 40, y: startY + 315, fontSize: 12 });
-      //   });
-
-      //   // Render the report
-      //   report.render((err) => {
-      //     if (err) {
-      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-      //     }
-      //   });
-
-      //   // Set response headers and pipe the PDF stream
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader("Content-Disposition", `inline; filename=${formattedInvoiceNumber}.pdf`);
-      //   pdfStream.pipe(res);
-
-      //   break;
-      // }
-
-      // //   Get Shipment Report Endpoint
-      // case "getShipmentReport": {
-      //   if (method !== "GET") {
-      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getShipmentReport." });
-      //   }
-
-      //   const authHeader = req.headers.authorization;
-      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-      //   const token = authHeader.split(" ")[1];
-      //   const supabase = getSupabaseWithToken(token);
-
-      //   const {
-      //     data: { user },
-      //     error: userError,
-      //   } = await supabase.auth.getUser(token);
-
-      //   if (userError || !user) {
-      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
-      //   }
-
-      //   const shipmentId = req.query.id;
-      //   if (!shipmentId) return res.status(400).json({ error: true, message: "Missing shipment id" });
-
-      //   const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", shipmentId).single();
-
-      //   if (fetchError || !shipment) {
-      //     return res.status(404).json({ error: true, message: "Shipment not found" });
-      //   }
-
-      //   // Format shipment number with proper prefix and padding
-      //   const formattedShipmentNumber = `SH-${String(shipment.number).padStart(5, "0")}`;
-
-      //   // Format currency function
-      //   const formatCurrency = (amount) => {
-      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
-      //   };
-
-      //   // Format date function
-      //   const formatDate = (dateString) => {
-      //     const date = new Date(dateString);
-      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-      //   };
-
-      //   const { Report } = require("fluentreports");
-      //   const stream = require("stream");
-      //   const pdfStream = new stream.PassThrough();
-
-      //   // Create report with A4 page size
-      //   const report = new Report(pdfStream, {
-      //     paper: "A4",
-      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
-      //   });
-
-      //   // Header Section
-      //   report.pageHeader((rpt) => {
-      //     // Shipment Summary Section
-      //     rpt.print("Shipment Summary", { x: 40, y: 40, fontSize: 20, bold: true });
-
-      //     // Status badge (top right)
-      //     if (shipment.status === "Completed" || shipment.status === "Delivered") {
-      //       rpt.print("DELIVERED", { x: 500, y: 40, fontSize: 12, color: "green" });
-      //     }
-
-      //     // Shipment details grid
-      //     rpt.print("Shipment Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formattedShipmentNumber, { x: 40, y: 95, fontSize: 12 });
-
-      //     rpt.print("Shipment Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(shipment.shipping_date), { x: 250, y: 95, fontSize: 12 });
-
-      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(shipment.due_date), { x: 460, y: 95, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
-
-      //     // Carrier Information Section
-      //     rpt.print("Carrier Information", { x: 40, y: 140, fontSize: 20, bold: true });
-
-      //     rpt.print("Carrier Name", { x: 40, y: 170, fontSize: 10, color: "gray" });
-      //     rpt.print(shipment.carrier || "Not Specified", { x: 40, y: 185, fontSize: 12 });
-
-      //     rpt.print("Tracking Number", { x: 40, y: 210, fontSize: 10, color: "gray" });
-      //     rpt.print(shipment.tracking_number || "Not Available", { x: 40, y: 225, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
-
-      //     // Shipment Items Section
-      //     rpt.print("Shipment Items", { x: 40, y: 385, fontSize: 20, bold: true });
-
-      //     // Items table header
-      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
-
-      //     // Separator line below header
-      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
-      //   });
-
-      //   // Detail rows
-      //   let currentY = 435;
-      //   report.detail((rpt, data) => {
-      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
-      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
-      //     currentY += 25;
-      //   });
-
-      //   // Set data source
-      //   report.data(shipment.items);
-
-      //   // Footer with totals
-      //   report.finalSummary((rpt) => {
-      //     // Totals section - start right after the last item
-      //     const startY = currentY + 55;
-
-      //     // Totals section
-      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
-      //     rpt.print(shipment.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
-
-      //     rpt.print("Total Value", { x: 380, y: startY + 25, fontSize: 12, bold: true });
-      //     rpt.print(formatCurrency(shipment.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
-
-      //     // Delivery Information Section
-      //     rpt.print("Delivery Information", { x: 40, y: startY + 70, fontSize: 20, bold: true });
-
-      //     rpt.print("Status", { x: 40, y: startY + 100, fontSize: 10, color: "gray" });
-      //     rpt.print(shipment.status, { x: 40, y: startY + 115, fontSize: 12 });
-
-      //     if (shipment.status === "Delivered") {
-      //       rpt.print("Delivery Date", { x: 40, y: startY + 140, fontSize: 10, color: "gray" });
-      //       rpt.print(formatDate(shipment.delivery_date), { x: 40, y: startY + 155, fontSize: 12 });
-      //     }
-      //   });
-
-      //   // Render the report
-      //   report.render((err) => {
-      //     if (err) {
-      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-      //     }
-      //   });
-
-      //   // Set response headers and pipe the PDF stream
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedShipmentNumber}.pdf`);
-      //   pdfStream.pipe(res);
-
-      //   break;
-      // }
-
-      // //   Get Order Report Endpoint
-      // case "getOrderReport": {
-      //   if (method !== "GET") {
-      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOrderReport." });
-      //   }
-
-      //   const authHeader = req.headers.authorization;
-      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-      //   const token = authHeader.split(" ")[1];
-      //   const supabase = getSupabaseWithToken(token);
-
-      //   const {
-      //     data: { user },
-      //     error: userError,
-      //   } = await supabase.auth.getUser(token);
-
-      //   if (userError || !user) {
-      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
-      //   }
-
-      //   const orderId = req.query.id;
-      //   if (!orderId) return res.status(400).json({ error: true, message: "Missing order id" });
-
-      //   const { data: order, error: fetchError } = await supabase.from("orders").select("*").eq("id", orderId).single();
-
-      //   if (fetchError || !order) {
-      //     return res.status(404).json({ error: true, message: "Order not found" });
-      //   }
-
-      //   // Format order number with proper prefix and padding
-      //   const formattedOrderNumber = `ORD-${String(order.number).padStart(5, "0")}`;
-
-      //   // Format currency function
-      //   const formatCurrency = (amount) => {
-      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
-      //   };
-
-      //   // Format date function
-      //   const formatDate = (dateString) => {
-      //     const date = new Date(dateString);
-      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-      //   };
-
-      //   const { Report } = require("fluentreports");
-      //   const stream = require("stream");
-      //   const pdfStream = new stream.PassThrough();
-
-      //   // Create report with A4 page size
-      //   const report = new Report(pdfStream, {
-      //     paper: "A4",
-      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
-      //   });
-
-      //   // Header Section
-      //   report.pageHeader((rpt) => {
-      //     // Order Summary Section
-      //     rpt.print("Purchase Order", { x: 40, y: 40, fontSize: 20, bold: true });
-
-      //     // Status badge (top right)
-      //     if (order.status === "Completed" || order.status === "Paid") {
-      //       rpt.print("COMPLETED", { x: 500, y: 40, fontSize: 12, color: "green" });
-      //     } else if (order.status === "Processing") {
-      //       rpt.print("PROCESSING", { x: 500, y: 40, fontSize: 12, color: "blue" });
-      //     } else if (order.status === "Pending") {
-      //       rpt.print("PENDING", { x: 500, y: 40, fontSize: 12, color: "orange" });
-      //     }
-
-      //     // Order details grid
-      //     rpt.print("Order Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formattedOrderNumber, { x: 40, y: 95, fontSize: 12 });
-
-      //     rpt.print("Order Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(order.date), { x: 250, y: 95, fontSize: 12 });
-
-      //     rpt.print("Expected Delivery", { x: 460, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(order.expected_delivery), { x: 460, y: 95, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
-
-      //     // Order Information Section
-      //     rpt.print("Order Details", { x: 40, y: 140, fontSize: 20, bold: true });
-
-      //     // Supplier Information
-      //     rpt.print("Supplier", { x: 40, y: 170, fontSize: 10, color: "gray" });
-      //     rpt.print(order.supplier_name, { x: 40, y: 185, fontSize: 12 });
-
-      //     // Payment Terms
-      //     rpt.print("Payment Terms", { x: 40, y: 210, fontSize: 10, color: "gray" });
-      //     rpt.print(order.payment_terms, { x: 40, y: 225, fontSize: 12 });
-
-      //     // Delivery Terms
-      //     rpt.print("Delivery Terms", { x: 40, y: 250, fontSize: 10, color: "gray" });
-      //     rpt.print(order.delivery_terms, { x: 40, y: 265, fontSize: 12 });
-
-      //     // Purchase Type
-      //     if (order.purchase_type) {
-      //       rpt.print("Purchase Type", { x: 40, y: 290, fontSize: 10, color: "gray" });
-      //       rpt.print(order.purchase_type, { x: 40, y: 305, fontSize: 12 });
-      //     }
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
-
-      //     // Order Items Section
-      //     rpt.print("Ordered Items", { x: 40, y: 385, fontSize: 20, bold: true });
-
-      //     // Items table header
-      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
-
-      //     // Separator line below header
-      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
-      //   });
-
-      //   // Detail rows
-      //   let currentY = 435;
-      //   report.detail((rpt, data) => {
-      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
-      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
-      //     currentY += 25;
-      //   });
-
-      //   // Set data source
-      //   report.data(order.items);
-
-      //   // Footer with totals
-      //   report.finalSummary((rpt) => {
-      //     // Totals section - start right after the last item
-      //     const startY = currentY + 55;
-
-      //     // Subtotal
-      //     rpt.print("Subtotal", { x: 380, y: startY, fontSize: 12 });
-      //     rpt.print(formatCurrency(order.subtotal), { x: 510, y: startY, fontSize: 12 });
-
-      //     // Tax
-      //     if (order.tax) {
-      //       rpt.print("Tax", { x: 380, y: startY + 25, fontSize: 12 });
-      //       rpt.print(formatCurrency(order.tax), { x: 510, y: startY + 25, fontSize: 12 });
-      //     }
-
-      //     // Shipping
-      //     if (order.shipping_cost) {
-      //       rpt.print("Shipping", { x: 380, y: startY + 50, fontSize: 12 });
-      //       rpt.print(formatCurrency(order.shipping_cost), { x: 510, y: startY + 50, fontSize: 12 });
-      //     }
-
-      //     // Grand Total
-      //     const grandTotalY = startY + (order.shipping_cost ? 75 : 50);
-      //     rpt.print("Grand Total", { x: 380, y: grandTotalY, fontSize: 12, bold: true });
-      //     rpt.print(formatCurrency(order.grand_total), { x: 510, y: grandTotalY, fontSize: 12, bold: true });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: grandTotalY + 25, y2: grandTotalY + 25 });
-
-      //     // Terms and Notes Section
-      //     if (order.terms_and_conditions) {
-      //       rpt.print("Terms and Conditions", { x: 40, y: grandTotalY + 45, fontSize: 20, bold: true });
-      //       rpt.print(order.terms_and_conditions, { x: 40, y: grandTotalY + 70, fontSize: 10 });
-      //     }
-
-      //     // Approval Section
-      //     rpt.print("Approval", { x: 40, y: grandTotalY + 120, fontSize: 20, bold: true });
-
-      //     // Prepared by
-      //     rpt.line({ x1: 40, x2: 200, y1: grandTotalY + 175, y2: grandTotalY + 175 });
-      //     rpt.print("Prepared by", { x: 40, y: grandTotalY + 190, fontSize: 10 });
-
-      //     // Approved by
-      //     rpt.line({ x1: 250, x2: 410, y1: grandTotalY + 175, y2: grandTotalY + 175 });
-      //     rpt.print("Approved by", { x: 250, y: grandTotalY + 190, fontSize: 10 });
-
-      //     // Date
-      //     rpt.line({ x1: 460, x2: 555, y1: grandTotalY + 175, y2: grandTotalY + 175 });
-      //     rpt.print("Date", { x: 460, y: grandTotalY + 190, fontSize: 10 });
-      //   });
-
-      //   // Render the report
-      //   report.render((err) => {
-      //     if (err) {
-      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-      //     }
-      //   });
-
-      //   // Set response headers and pipe the PDF stream
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedOrderNumber}.pdf`);
-      //   pdfStream.pipe(res);
-
-      //   break;
-      // }
-
-      // // Get Offer Report Endpoint
-      // case "getOfferReport": {
-      //   if (method !== "GET") {
-      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getOfferReport." });
-      //   }
-
-      //   const authHeader = req.headers.authorization;
-      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-      //   const token = authHeader.split(" ")[1];
-      //   const supabase = getSupabaseWithToken(token);
-
-      //   const {
-      //     data: { user },
-      //     error: userError,
-      //   } = await supabase.auth.getUser(token);
-
-      //   if (userError || !user) {
-      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
-      //   }
-
-      //   const offerId = req.query.id;
-      //   if (!offerId) return res.status(400).json({ error: true, message: "Missing offer id" });
-
-      //   const { data: offer, error: fetchError } = await supabase.from("offers").select("*").eq("id", offerId).single();
-
-      //   if (fetchError || !offer) {
-      //     return res.status(404).json({ error: true, message: "Offer not found" });
-      //   }
-
-      //   // Format offer number with proper prefix and padding
-      //   const formattedOfferNumber = `OFR-${String(offer.number).padStart(5, "0")}`;
-
-      //   // Format currency function
-      //   const formatCurrency = (amount) => {
-      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
-      //   };
-
-      //   // Format date function
-      //   const formatDate = (dateString) => {
-      //     const date = new Date(dateString);
-      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-      //   };
-
-      //   const { Report } = require("fluentreports");
-      //   const stream = require("stream");
-      //   const pdfStream = new stream.PassThrough();
-
-      //   // Create report with A4 page size
-      //   const report = new Report(pdfStream, {
-      //     paper: "A4",
-      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
-      //   });
-
-      //   // Header Section
-      //   report.pageHeader((rpt) => {
-      //     // Offer Summary Section
-      //     rpt.print("Price Quotation", { x: 40, y: 40, fontSize: 20, bold: true });
-
-      //     // Status badge (top right)
-      //     if (offer.status === "Accepted") {
-      //       rpt.print("ACCEPTED", { x: 500, y: 40, fontSize: 12, color: "green" });
-      //     }
-
-      //     // Offer details grid
-      //     rpt.print("Quotation Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formattedOfferNumber, { x: 40, y: 95, fontSize: 12 });
-
-      //     rpt.print("Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(offer.date), { x: 250, y: 95, fontSize: 12 });
-
-      //     rpt.print("Valid Until", { x: 460, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(offer.expiry_date), { x: 460, y: 95, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
-
-      //     // Offer Information Section
-      //     rpt.print("Quotation Details", { x: 40, y: 140, fontSize: 20, bold: true });
-
-      //     rpt.print("Status", { x: 40, y: 170, fontSize: 10, color: "gray" });
-      //     rpt.print(offer.status, { x: 40, y: 185, fontSize: 12 });
-
-      //     if (offer.discount_terms) {
-      //       rpt.print("Discount Terms", { x: 40, y: 210, fontSize: 10, color: "gray" });
-      //       rpt.print(offer.discount_terms, { x: 40, y: 225, fontSize: 12 });
-      //     }
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
-
-      //     // Offer Items Section
-      //     rpt.print("Items & Pricing", { x: 40, y: 385, fontSize: 20, bold: true });
-
-      //     // Items table header
-      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Unit Price", { x: 380, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Total", { x: 510, y: 415, fontSize: 12, bold: true });
-
-      //     // Separator line below header
-      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
-      //   });
-
-      //   // Detail rows
-      //   let currentY = 435;
-      //   report.detail((rpt, data) => {
-      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
-      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
-      //     currentY += 25;
-      //   });
-
-      //   // Set data source
-      //   report.data(offer.items);
-
-      //   // Footer with totals
-      //   report.finalSummary((rpt) => {
-      //     // Totals section - start right after the last item
-      //     const startY = currentY + 55;
-
-      //     // Totals section
-      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
-      //     rpt.print(offer.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
-
-      //     rpt.print("Grand Total", { x: 380, y: startY + 25, fontSize: 12, bold: true });
-      //     rpt.print(formatCurrency(offer.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
-
-      //     // Terms and Conditions Section
-      //     rpt.print("Terms and Conditions", { x: 40, y: startY + 70, fontSize: 20, bold: true });
-
-      //     const terms = [
-      //       "1. This quotation is valid until the expiry date mentioned above.",
-      //       "2. Prices are subject to change without prior notice.",
-      //       "3. Payment terms as specified in the quotation.",
-      //       "4. Delivery timeline will be confirmed upon order confirmation.",
-      //     ];
-
-      //     terms.forEach((term, index) => {
-      //       rpt.print(term, { x: 40, y: startY + 100 + index * 20, fontSize: 10 });
-      //     });
-
-      //     if (offer.tags && offer.tags.length > 0) {
-      //       rpt.print("Tags", { x: 40, y: startY + 190, fontSize: 10, color: "gray" });
-      //       rpt.print(offer.tags.join(", "), { x: 40, y: startY + 205, fontSize: 12 });
-      //     }
-      //   });
-
-      //   // Render the report
-      //   report.render((err) => {
-      //     if (err) {
-      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-      //     }
-      //   });
-
-      //   // Set response headers and pipe the PDF stream
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedOfferNumber}.pdf`);
-      //   pdfStream.pipe(res);
-
-      //   break;
-      // }
-
-      // // Get Request Report Endpoint
-      // case "getRequestReport": {
-      //   if (method !== "GET") {
-      //     return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getRequestReport." });
-      //   }
-
-      //   const authHeader = req.headers.authorization;
-      //   if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
-
-      //   const token = authHeader.split(" ")[1];
-      //   const supabase = getSupabaseWithToken(token);
-
-      //   const {
-      //     data: { user },
-      //     error: userError,
-      //   } = await supabase.auth.getUser(token);
-
-      //   if (userError || !user) {
-      //     return res.status(401).json({ error: true, message: "Invalid or expired token" });
-      //   }
-
-      //   const requestId = req.query.id;
-      //   if (!requestId) return res.status(400).json({ error: true, message: "Missing request id" });
-
-      //   const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", requestId).single();
-
-      //   if (fetchError || !request) {
-      //     return res.status(404).json({ error: true, message: "Request not found" });
-      //   }
-
-      //   // Format request number with proper prefix and padding
-      //   const formattedRequestNumber = `REQ-${String(request.number).padStart(5, "0")}`;
-
-      //   // Format currency function
-      //   const formatCurrency = (amount) => {
-      //     return `Rp ${new Intl.NumberFormat("id-ID").format(amount)}`;
-      //   };
-
-      //   // Format date function
-      //   const formatDate = (dateString) => {
-      //     const date = new Date(dateString);
-      //     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      //     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-      //   };
-
-      //   const { Report } = require("fluentreports");
-      //   const stream = require("stream");
-      //   const pdfStream = new stream.PassThrough();
-
-      //   // Create report with A4 page size
-      //   const report = new Report(pdfStream, {
-      //     paper: "A4",
-      //     margins: { top: 40, left: 40, right: 40, bottom: 40 },
-      //   });
-
-      //   // Header Section
-      //   report.pageHeader((rpt) => {
-      //     // Request Summary Section
-      //     rpt.print("Purchase Request", { x: 40, y: 40, fontSize: 20, bold: true });
-
-      //     // Status badge (top right)
-      //     if (request.status === "Completed") {
-      //       rpt.print("COMPLETED", { x: 500, y: 40, fontSize: 12, color: "green" });
-      //     } else if (request.status === "Pending") {
-      //       rpt.print("PENDING", { x: 500, y: 40, fontSize: 12, color: "orange" });
-      //     }
-
-      //     // Request details grid
-      //     rpt.print("Request Number", { x: 40, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formattedRequestNumber, { x: 40, y: 95, fontSize: 12 });
-
-      //     rpt.print("Request Date", { x: 250, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(request.date), { x: 250, y: 95, fontSize: 12 });
-
-      //     rpt.print("Due Date", { x: 460, y: 80, fontSize: 10, color: "gray" });
-      //     rpt.print(formatDate(request.due_date), { x: 460, y: 95, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 120, y2: 120 });
-
-      //     // Request Information Section
-      //     rpt.print("Request Details", { x: 40, y: 140, fontSize: 20, bold: true });
-
-      //     rpt.print("Requested By", { x: 40, y: 170, fontSize: 10, color: "gray" });
-      //     rpt.print(request.requested_by, { x: 40, y: 185, fontSize: 12 });
-
-      //     rpt.print("Urgency Level", { x: 40, y: 210, fontSize: 10, color: "gray" });
-      //     rpt.print(request.urgency, { x: 40, y: 225, fontSize: 12 });
-
-      //     rpt.print("Status", { x: 40, y: 250, fontSize: 10, color: "gray" });
-      //     rpt.print(request.status, { x: 40, y: 265, fontSize: 12 });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: 365, y2: 365 });
-
-      //     // Request Items Section
-      //     rpt.print("Requested Items", { x: 40, y: 385, fontSize: 20, bold: true });
-
-      //     // Items table header
-      //     rpt.print("Item", { x: 40, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Quantity", { x: 250, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Est. Price", { x: 380, y: 415, fontSize: 12, bold: true });
-      //     rpt.print("Est. Total", { x: 510, y: 415, fontSize: 12, bold: true });
-
-      //     // Separator line below header
-      //     rpt.line({ x1: 40, x2: 555, y1: 435, y2: 435 });
-      //   });
-
-      //   // Detail rows
-      //   let currentY = 435;
-      //   report.detail((rpt, data) => {
-      //     rpt.print(data.name, { x: 40, y: currentY, fontSize: 12 });
-      //     rpt.print(data.qty.toString(), { x: 250, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.price), { x: 380, y: currentY, fontSize: 12 });
-      //     rpt.print(formatCurrency(data.total_per_item), { x: 510, y: currentY, fontSize: 12 });
-      //     currentY += 25;
-      //   });
-
-      //   // Set data source
-      //   report.data(request.items);
-
-      //   // Footer with totals
-      //   report.finalSummary((rpt) => {
-      //     // Totals section - start right after the last item
-      //     const startY = currentY + 55;
-
-      //     // Totals section
-      //     rpt.print("Total Items", { x: 380, y: startY, fontSize: 12 });
-      //     rpt.print(request.items.length.toString(), { x: 510, y: startY, fontSize: 12 });
-
-      //     rpt.print("Estimated Total", { x: 380, y: startY + 25, fontSize: 12, bold: true });
-      //     rpt.print(formatCurrency(request.grand_total), { x: 510, y: startY + 25, fontSize: 12, bold: true });
-
-      //     // Separator line
-      //     rpt.line({ x1: 40, x2: 555, y1: startY + 50, y2: startY + 50 });
-
-      //     // Additional Information Section
-      //     rpt.print("Additional Information", { x: 40, y: startY + 70, fontSize: 20, bold: true });
-
-      //     if (request.tags && request.tags.length > 0) {
-      //       rpt.print("Tags", { x: 40, y: startY + 100, fontSize: 10, color: "gray" });
-      //       rpt.print(request.tags.join(", "), { x: 40, y: startY + 115, fontSize: 12 });
-      //     }
-
-      //     // Approval Section
-      //     rpt.print("Approval Status", { x: 40, y: startY + 145, fontSize: 20, bold: true });
-
-      //     rpt.print("Current Status", { x: 40, y: startY + 175, fontSize: 10, color: "gray" });
-      //     rpt.print(request.status, { x: 40, y: startY + 190, fontSize: 12 });
-
-      //     // Add signature lines if needed
-      //     if (request.status === "Pending") {
-      //       rpt.line({ x1: 40, x2: 200, y1: startY + 250, y2: startY + 250 });
-      //       rpt.print("Requester Signature", { x: 40, y: startY + 265, fontSize: 10 });
-
-      //       rpt.line({ x1: 250, x2: 410, y1: startY + 250, y2: startY + 250 });
-      //       rpt.print("Approver Signature", { x: 250, y: startY + 265, fontSize: 10 });
-      //     }
-      //   });
-
-      //   // Render the report
-      //   report.render((err) => {
-      //     if (err) {
-      //       return res.status(500).json({ error: true, message: "Failed to render PDF: " + err.message });
-      //     }
-      //   });
-
-      //   // Set response headers and pipe the PDF stream
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader("Content-Disposition", `attachment; filename=${formattedRequestNumber}.pdf`);
-      //   pdfStream.pipe(res);
-
-      //   break;
-      // }
 
       // Non-existent Endpoint
       default:
