@@ -71,9 +71,9 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { category, name, total_stock, min_stock, unit, buy_price, status, sell_price, sku, warehouses, description, sales_COA, cogs_COA, company_type, account_info } = req.body;
+        const { category, name, unit, sell_price, sku, warehouses, description, sales_COA, cogs_COA, stock_COA, stock_name, cogs } = req.body;
 
-        if (!category || !name || !unit || !sku || !sell_price || !warehouses || !description || !account_info || !sales_COA || !cogs_COA) {
+        if (!category || !name || !unit || !sell_price || !sku || !warehouses || !description || !sales_COA || !cogs_COA || !stock_COA || !stock_name || !cogs) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
@@ -82,28 +82,37 @@ module.exports = async (req, res) => {
         //   return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
         // }
 
-        const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").order("number", { ascending: false }).limit(1);
+        // const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").order("number", { ascending: false }).limit(1);
 
-        if (fetchError) {
-          return res.status(500).json({ error: true, message: "Failed to fetch latest product number: " + fetchError.message });
-        }
+        // if (fetchError) {
+        //   return res.status(500).json({ error: true, message: "Failed to fetch latest product number: " + fetchError.message });
+        // }
 
-        let newNumber = 1;
-        if (maxNumberData && maxNumberData.length > 0) {
-          newNumber = maxNumberData[0].number + 1;
-        }
+        // let newNumber = 1;
+        // if (maxNumberData && maxNumberData.length > 0) {
+        //   newNumber = maxNumberData[0].number + 1;
+        // }
 
         const { error: insertError } = await supabase.from("products").insert([
           {
             user_id: user.id,
-            number: newNumber,
             category,
             name,
-            total_stock: Number(total_stock),
-            min_stock: Number(min_stock),
             unit,
-            buy_price: Number(buy_price),
-            status,
+            sell_price: Number(sell_price),
+            sku,
+            warehouses,
+            description,
+            sales_COA,
+            cogs_COA,
+            description,
+            sales_COA,
+            cogs_COA,
+            company_type: "Service",
+            stock_COA,
+            stock_name,
+            cogs,
+            created_at: new Date().toISOString(),
           },
         ]);
 
@@ -186,6 +195,121 @@ module.exports = async (req, res) => {
         return res.status(201).json({ error: false, message: "Warehouse added successfully" });
       }
 
+      // Edit Stock Endpoint
+      case "editStock": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editStock." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // // Get user roles from database (e.g. 'profiles' or 'users' table)
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Check if the user role is among those permitted
+        // const allowedRoles = ["inventory", "procurement", "manager", "admin"];
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Access denied. You are not authorized to perform this action.",
+        //   });
+        // }
+
+        const { id, category, minimum_stock, warehouses, description, copyToProduct } = req.body;
+
+        if (!id) {
+          return res.status(400).json({ error: true, message: "Missing required fields" });
+        }
+
+        const { data: existingStock, error: fetchError } = await supabase.from("stock").select("*").eq("id", id);
+
+        if (fetchError || !existingStock) {
+          return res.status(404).json({ error: true, message: "Stock not found" });
+        }
+
+        const { error: updateError } = await supabase
+          .from("stock")
+          .update({
+            user_id: user.id,
+            category,
+            minimum_stock: Number(minimum_stock),
+            warehouses,
+            description,
+            copyToProduct,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id);
+
+        if (updateError) {
+          return res.status(500).json({ error: true, message: "Failed to update stock: " + updateError.message });
+        }
+
+        // Get the latest total_cogs data from inventory
+        const { data: latestInventory, error: inventoryError } = await supabase.from("inventory").select("total_cogs").order("updated_at", { ascending: false }).limit(1).single();
+
+        if (inventoryError) {
+          return res.status(404).json({ error: true, message: "Total COGS data not found" });
+        }
+
+        // --- If copyToProduct = True ---
+        if (copyToProduct === true) {
+          // Insert data to products
+          const { error: insertError } = await supabase.from("products").insert([
+            {
+              name: existingStock.name,
+              sku: existingStock.sku,
+              category: existingStock.category,
+              unit: existingStock.unit,
+              warehouses: existingStock.warehouses,
+              stock_COA: existingStock.stock_COA,
+              stock_name: existingStock.name,
+              cogs: latestInventory?.total_cogs || 0,
+              company_type: "Merchandise or Manufacturing",
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (insertError) {
+            return res.status(500).json({ error: true, message: "Failed to insert data to product: " + insertError.message });
+          }
+        } else {
+          // Insert data to products
+          const { error: insertError } = await supabase.from("products").insert([
+            {
+              stock_COA: existingStock.stock_COA,
+              stock_name: existingStock.name,
+              cogs: latestInventory?.total_cogs || 0,
+              company_type: "Service",
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (insertError) {
+            return res.status(500).json({ error: true, message: "Failed to insert data to product: " + insertError.message });
+          }
+        }
+
+        return res.status(200).json({ error: false, message: "Stock updated successfully" });
+      }
+
       // Edit Product Endpoint
       case "editProduct": {
         if (method !== "PUT") {
@@ -224,22 +348,22 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { id, category, name, total_stock, min_stock, unit, buy_price, status } = req.body;
+        const { id, category, name, unit, sell_price, sku, warehouses, description, sales_COA, cogs_COA, stock_COA, stock_name, cogs } = req.body;
 
         if (!id) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const allowedStatuses = ["In Stock", "Out of Stock"];
-        if (!allowedStatuses.includes(status)) {
-          return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
-        }
+        // const allowedStatuses = ["In Stock", "Out of Stock"];
+        // if (!allowedStatuses.includes(status)) {
+        //   return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
+        // }
 
-        const { data: existingProduct, error: fetchError } = await supabase.from("products").select("id").eq("id", id);
+        // const { data: existingProduct, error: fetchError } = await supabase.from("products").select("id").eq("id", id);
 
-        if (fetchError || !existingProduct || existingProduct.length === 0) {
-          return res.status(404).json({ error: true, message: "Product not found or does not belong to user" });
-        }
+        // if (fetchError || !existingProduct || existingProduct.length === 0) {
+        //   return res.status(404).json({ error: true, message: "Product not found or does not belong to user" });
+        // }
 
         const { error: updateError } = await supabase
           .from("products")
@@ -247,11 +371,20 @@ module.exports = async (req, res) => {
             user_id: user.id,
             category,
             name,
-            total_stock: Number(total_stock),
-            min_stock: Number(min_stock),
             unit,
-            buy_price: Number(buy_price),
-            status,
+            sell_price: Number(sell_price),
+            sku,
+            warehouses,
+            description,
+            sales_COA,
+            cogs_COA,
+            description,
+            sales_COA,
+            cogs_COA,
+            company_type: "Service",
+            stock_COA,
+            stock_name,
+            cogs,
             updated_at: new Date().toISOString(),
           })
           .eq("id", id);
@@ -403,6 +536,7 @@ module.exports = async (req, res) => {
       }
 
       // Get All Products, Warehouses Endpoint
+      case "getStocks":
       case "getProducts":
       case "getWarehouses": {
         if (method !== "GET") {
