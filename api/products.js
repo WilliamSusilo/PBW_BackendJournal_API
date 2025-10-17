@@ -71,16 +71,16 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { category, name, total_stock, min_stock, unit, buy_price, status } = req.body;
+        const { category, name, total_stock, min_stock, unit, buy_price, status, sell_price, sku, warehouses, description, sales_COA, cogs_COA, company_type, account_info } = req.body;
 
-        if (!category || !name || total_stock === undefined || min_stock === undefined || !unit || buy_price === undefined || !status) {
+        if (!category || !name || !unit || !sku || !sell_price || !warehouses || !description || !account_info || !sales_COA || !cogs_COA) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const allowedStatuses = ["In Stock", "Out of Stock"];
-        if (!allowedStatuses.includes(status)) {
-          return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
-        }
+        // const allowedStatuses = ["In Stock", "Out of Stock"];
+        // if (!allowedStatuses.includes(status)) {
+        //   return res.status(400).json({ error: true, message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}` });
+        // }
 
         const { data: maxNumberData, error: fetchError } = await supabase.from("products").select("number").order("number", { ascending: false }).limit(1);
 
