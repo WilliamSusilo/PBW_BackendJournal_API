@@ -294,11 +294,6 @@ module.exports = async (req, res) => {
           // Hitung total yang dibayar (DP atau cicilan)
           const paid_amount = Math.round(Number(installment_amount) + ppn);
 
-          // Hitung sisa saldo pembayaran
-          const remain_balance = Math.max(grandTotal - paid_amount);
-
-          console.log("Ini remain balance =", remain_balance);
-
           // Make journal entry
           const { data: journal, error: journalError } = await supabase
             .from("journal_entries")
@@ -376,7 +371,6 @@ module.exports = async (req, res) => {
               payment_name,
               vat_name,
               vat_COA,
-              remain_balance,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -860,29 +854,6 @@ module.exports = async (req, res) => {
             };
           });
 
-          // Ambil data dari tabel billing_order berdasarkan number dari billing_invoice
-          const { data: remainBalanceData, error: fetchRemainError } = await supabase.from("billing_order").select("*").eq("number", allNumbers.number).single(); // asumsi 'billing' adalah data hasil query sebelumnya
-
-          // Validasi error dari query
-          if (fetchRemainError) {
-            return res.status(500).json({
-              error: true,
-              message: "Failed to fetch related billing_order: " + fetchRemainError.message,
-            });
-          }
-
-          let remainBalance;
-
-          // Validasi jika tidak ada data ditemukan
-          if (remainBalanceData || remainBalanceData.length !== 0) {
-            remainBalance = remainBalanceData.remain_balance;
-          } else if (!remainBalanceData || remainBalanceData.length === 0) {
-            remainBalance = grand_total;
-          }
-
-          // Jika ada data, remainBalance akan berisi array objek hasil query
-          console.log("DEBUG >> remainBalance data:", remainBalance);
-
           // const dpp = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
           // // Calculate PPN and PPh
@@ -920,7 +891,6 @@ module.exports = async (req, res) => {
               insurance,
               vendor_COA,
               total,
-              remain_balance: remainBalance,
               attachment_url: attachment_urls || null,
             },
           ]);
@@ -2373,7 +2343,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, remain_balance, status, ppn, filesToDelete } = req.body;
+          const { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, status, ppn, filesToDelete } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2794,7 +2764,6 @@ module.exports = async (req, res) => {
             insurance,
             vendor_COA,
             total,
-            remain_balance,
             filesToDelete,
           } = req.body;
 
@@ -2983,7 +2952,6 @@ module.exports = async (req, res) => {
             insurance: insurance,
             vendor_COA: vendor_COA,
             total: total,
-            remain_balance: remain_balance,
             updated_at: new Date().toISOString(),
           };
 
@@ -5580,7 +5548,7 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: true, message: "Billing not found or already completed/rejected" });
         }
 
-        const {
+        let {
           vendor_name,
           terms,
           grand_total,
@@ -5614,6 +5582,8 @@ module.exports = async (req, res) => {
         let paymentDates = [];
         const currentDate = new Date().toISOString().split("T")[0]; // contoh: "2025-10-10"
         let installment_count = billing.installment_count || 0;
+        let discountRate = 0;
+        let hasFinalPay;
 
         // ====== Global Discount ======
         if (terms) {
@@ -5621,7 +5591,7 @@ module.exports = async (req, res) => {
           const match = billing.terms.match(/(\d+)\/(\d+),\s*n\/(\d+)/);
 
           if (match) {
-            const discountRate = parseFloat(match[1]); // e.g., 2 (%)
+            discountRate = parseFloat(match[1]); // e.g., 2 (%)
             const discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
             const netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
 
@@ -5689,7 +5659,7 @@ module.exports = async (req, res) => {
 
             // ====== Discount eligibility ======
             if (diffDays <= discountDays) {
-              discountPayment = (grand_total * discountRate) / 100;
+              discountPayment = (total * discountRate) / 100;
               console.log("DEBUG >> discount applied:", discountPayment);
               alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDays} days left to claim it.`);
             }
@@ -5727,7 +5697,7 @@ module.exports = async (req, res) => {
 
         // === FULL PAYMENT HANDLING ===
         if (payment_method === "Full Payment") {
-          if (paid_amount !== remain_balance) {
+          if (paid_amount !== grand_total) {
             alerts.push(`The amount you paid is insufficient for the Full Payment method. You must pay exactly ${grand_total.toLocaleString("id-ID")}.`);
             return res.status(400).json({ message: alerts.join(" ") });
           }
@@ -5764,7 +5734,17 @@ module.exports = async (req, res) => {
           else if (installment_count === 1 && !hasFinalPay) {
             const totalAfterPayment = totalPaid + paid_amount;
 
-            if (totalAfterPayment === grand_total) {
+            const remaining = grand_total - totalPaid;
+
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment === remaining) {
               paymentAmount.push({ final_pay: paid_amount });
               alerts.push("Final payment completed. Payment fully settled.");
             } else {
@@ -5777,8 +5757,17 @@ module.exports = async (req, res) => {
           // Jika installment_count = 2 dan belum final
           else if (installment_count === 2 && !hasFinalPay) {
             const totalAfterPayment = totalPaid + paid_amount;
+            const remaining = grand_total - totalPaid;
 
-            if (totalAfterPayment === grand_total) {
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment === remaining) {
               paymentAmount.push({ final_pay: paid_amount });
               alerts.push("Final payment completed. Payment fully settled.");
             } else {
@@ -5791,13 +5780,23 @@ module.exports = async (req, res) => {
           // Jika installment_count = 3 dan belum final
           else if (installment_count === 3 && !hasFinalPay) {
             const totalAfterPayment = totalPaid + paid_amount;
+            const remaining = grand_total - totalPaid;
 
-            if (totalAfterPayment < grand_total) {
-              alerts.push(`The amount you paid is not enough. This should be the final payment to complete your balance of ${(grand_total - totalAfterPayment).toLocaleString("id-ID")}.`);
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment !== grand_total) {
+              alerts.push(`The amount you paid is not enough. This should be the final payment to complete your balance of ${remaining.toLocaleString("id-ID")}.`);
               return res.status(400).json({ message: alerts.join(" ") });
             }
 
             paymentAmount.push({ final_pay: paid_amount });
+            installment_count += 1;
             alerts.push("Final payment completed. Payment fully settled.");
           }
 
@@ -5831,21 +5830,20 @@ module.exports = async (req, res) => {
         }
 
         // ====== Total Qty Calculation (for proportional discount/penalty allocation) ======
-        const totalQty = itemsRaw.reduce((sum, i) => sum + i.qty, 0);
+        const totalQty = itemsRaw.reduce((sum, i) => sum + (i.qty - (i.return_unit || 0)), 0);
 
         // ====== Loop Items (allocate discount proportionally to inventory) ======
-        for (const item of itemsRaw) {
-          const { qty } = item;
-          const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
-          totalInventory += itemDiscount;
-        }
+        // for (const item of itemsRaw) {
+        //   const { qty } = item;
+        //   const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
+        //   totalInventory += itemDiscount;
+        // }
 
         // Buat journal entry utama
         const { data: journal, error: journalError } = await supabase
           .from("journal_entries")
           .insert({
-            id: billingId,
-            transaction_number: `BILINV-${number}`,
+            transaction_number: `BILINV-${number}-${installment_count}`,
             description: `Journal for Billing Invoice ${billingId}`,
             user_id: user.id,
             entry_date: new Date().toISOString().split("T")[0],
@@ -5861,6 +5859,18 @@ module.exports = async (req, res) => {
           });
         }
 
+        const ppnRate = Number(billing.ppn_percentage) / 100;
+
+        if (billing.tax_method === "Before Calculate") {
+          dpp = (11 / 12) * billing.total;
+          ppn = Math.round(ppnRate * dpp);
+          pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+        } else if (billing.tax_method === "After Calculate") {
+          dpp = billing.total / (1 + ppnRate);
+          ppn = Math.round(ppnRate * dpp);
+          pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+        }
+
         // ====== Journal Entries: Full Payment ======
         if (payment_method === "Full Payment") {
           // Debit Vendor
@@ -5868,7 +5878,7 @@ module.exports = async (req, res) => {
             journal_entry_id: journal.id,
             account_code: vendor_COA,
             description: vendor_name,
-            debit: remain_balance,
+            debit: total,
             credit: 0,
             user_id: user.id,
           });
@@ -5888,7 +5898,7 @@ module.exports = async (req, res) => {
             account_code: payment_COA,
             description: `${payment_name}`,
             debit: 0,
-            credit: remain_balance + ppn,
+            credit: total + ppn,
             user_id: user.id,
           });
 
@@ -5898,8 +5908,8 @@ module.exports = async (req, res) => {
               journal_entry_id: journal.id,
               account_code: 160103,
               description: "Prepaid PPh 23",
-              debit: 0,
-              credit: pph,
+              debit: pph,
+              credit: 0,
               user_id: user.id,
             });
 
@@ -5918,6 +5928,16 @@ module.exports = async (req, res) => {
         else if (payment_method === "Partial Payment") {
           // Example: partialAmount is the actual paid amount
           const partialAmount = paid_amount || 0;
+
+          if (billing.tax_method === "Before Calculate") {
+            dpp = (11 / 12) * partialAmount;
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else if (billing.tax_method === "After Calculate") {
+            dpp = partialAmount / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          }
 
           if (partialAmount > 0) {
             // Debit Vendor
@@ -5955,8 +5975,8 @@ module.exports = async (req, res) => {
                 journal_entry_id: journal.id,
                 account_code: 160103,
                 description: "Prepaid PPh 23",
-                debit: 0,
-                credit: pph,
+                debit: pph,
+                credit: 0,
                 user_id: user.id,
               });
 
@@ -5969,8 +5989,6 @@ module.exports = async (req, res) => {
                 user_id: user.id,
               });
             }
-
-            alerts.push(`Partial payment of ${partialAmount} has been recorded. Remaining balance = ${grand_total - partialAmount}.`);
           } else {
             alerts.push("Warning: Partial payment amount is missing or zero.");
           }
@@ -5978,40 +5996,70 @@ module.exports = async (req, res) => {
 
         console.log("DEBUG >> discountPayment:", discountPayment);
 
+        let totalItemDisc = 0;
+
         // ====== Journal Entries: Discount Payment Allocation ======
         if (discountPayment > 0) {
-          // Debit Cash & Bank
-          lineEntries.push({
-            journal_entry_id: journal.id,
-            account_code: payment_COA,
-            description: `${payment_name}`,
-            debit: discountPayment,
-            credit: 0,
-            user_id: user.id,
-          });
-
           lineEntries.push({
             journal_entry_id: journal.id,
             account_code: 160101,
             description: "VAT In",
             debit: 0,
-            credit: ppn,
+            credit: Math.round(ppn - (ppn * discountRate) / 100),
             user_id: user.id,
           });
 
           // Credit allocation to Inventory (proportional per item)
           for (const item of itemsRaw) {
-            const itemDisc = (discountPayment / totalQty) * item.qty;
+            console.log("DEBUG >> item for discount allocation:", item);
+            console.log("DEBUG >> item.qty for discount allocation:", item.qty);
+            const itemDisc = Number((discountPayment / totalQty) * (item.qty - item.return_unit));
+            totalItemDisc += itemDisc;
             lineEntries.push({
               journal_entry_id: journal.id,
               account_code: item.coa,
               description: `Inventory - ${item.item_name}`,
               debit: 0,
-              credit: itemDisc,
+              credit: Math.round(itemDisc),
               user_id: user.id,
             });
           }
+
+          // Debit Cash & Bank
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: payment_COA,
+            description: `${payment_name}`,
+            debit: Math.round(discountPayment + (ppn - (ppn * discountRate) / 100)),
+            credit: 0,
+            user_id: user.id,
+          });
         }
+
+        // ====== Update status berdasarkan metode pembayaran ======
+        let newStatus = billing.status; // default tetap status lama
+
+        if (payment_method === "Full Payment") {
+          newStatus = "Completed";
+        } else if (payment_method === "Partial Payment") {
+          if (hasFinalPay) {
+            newStatus = "Completed";
+          } else {
+            newStatus = "Pending";
+          }
+        }
+
+        // Update status di database
+        const { error: updateStatusError } = await supabase.from("billing_invoice").update({ status: newStatus }).eq("id", billing.id);
+
+        if (updateStatusError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update billing status: " + updateStatusError.message,
+          });
+        }
+
+        console.log(`DEBUG >> Updated billing status to: ${newStatus}`);
 
         // Insert ke Supabase
         const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
@@ -6259,15 +6307,8 @@ module.exports = async (req, res) => {
         }
 
         let lineEntries = [];
-        let remainBalance;
 
-        const { items, freight_in, insurance, vendor_COA, vendor_name, number, remain_balance } = invoice;
-
-        if (remain_balance || remain_balance.length !== 0) {
-          remainBalance = invoice.remain_balance;
-        } else if (!remain_balance || remain_balance.length === 0) {
-          remainBalance = invoice.grand_total;
-        }
+        const { items, freight_in, insurance, vendor_COA, vendor_name, number } = invoice;
 
         // 2. Hitung total qty semua item
         const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
@@ -6298,6 +6339,7 @@ module.exports = async (req, res) => {
 
         // 4. Hitung nilai inventory per item
         let totalInventory = 0;
+        const inventoryRecords = [];
 
         for (const item of items) {
           const { coa, item_name, sku, qty, price, disc_item, disc_item_type, return_unit } = item;
@@ -6311,7 +6353,7 @@ module.exports = async (req, res) => {
             discountedPrice = price - (price * disc_item) / 100;
             gross = (discountedPrice + freightShare + insuranceShare) * qty;
           } else if (disc_item_type === "rupiah") {
-            gross = (price + freightShare + insuranceShare) * qty - disc_item;
+            gross = (price + freightShare + insuranceShare - disc_item) * qty;
           }
 
           if (return_unit > 0) {
@@ -6336,6 +6378,38 @@ module.exports = async (req, res) => {
             user_id: user.id,
             transaction_number: `INV-${number}`,
           });
+
+          // Tambahan: Insert ke inventory
+          const inventoryDate = new Date().toISOString().split("T")[0];
+          const purchaseCount = (await supabase.from("inventory").select("id", { count: "exact" }).ilike("description", `Purchase Invoice%`).eq("inventory_date", inventoryDate)).count || 0;
+
+          const descText = `Purchase Invoice ${purchaseCount + 1}`;
+
+          inventoryRecords.push({
+            inventory_date: inventoryDate,
+            description: descText,
+            quantity: qty,
+            price: price,
+            return: return_unit,
+            disc_per_item: disc_item,
+            freight_in: freightShare * qty,
+            insurance: insuranceShare * qty,
+            disc_payment: 0,
+            nett_purchase: net,
+            nett_price_item: qty > 0 ? net / qty : 0,
+          });
+        }
+
+        // Insert data ke inventory table
+        if (inventoryRecords.length > 0) {
+          const { error: inventoryInsertError } = await supabase.from("inventory").insert(inventoryRecords);
+
+          if (inventoryInsertError) {
+            return res.status(404).json({
+              error: true,
+              message: "Failed to insert inventory records: " + inventoryInsertError.message,
+            });
+          }
         }
 
         // 5. Kredit: AP - Vendor
@@ -6401,7 +6475,6 @@ module.exports = async (req, res) => {
             ppn_percentage: invoice.ppn_percentage,
             pph_percentage: invoice.pph_percentage,
             total: invoice.total,
-            remain_balance: remainBalance,
           },
         ]);
 
@@ -6751,9 +6824,6 @@ module.exports = async (req, res) => {
           // Hitung total yang dibayar (DP atau cicilan)
           const paid_amount = Math.round(Number(request.installment_amount) + ppn);
 
-          // Hitung sisa saldo pembayaran
-          const remain_balance = Math.round(grandTotal - paid_amount);
-
           const { error } = await supabase.from("billing_order").insert([
             {
               user_id: user.id,
@@ -6764,7 +6834,6 @@ module.exports = async (req, res) => {
               items: request.items,
               installment_amount: request.installment_amount,
               ppn,
-              remain_balance,
               paid_amount,
               status: "Pending",
             },
