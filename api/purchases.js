@@ -5550,7 +5550,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("shipments").select("*").eq("status", "Pending");
+        let query = supabase.from("shipments").select("*").in("status", ["Pending", "Received"]);
         query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -6544,50 +6544,107 @@ module.exports = async (req, res) => {
           });
 
           // === INVENTORY MANAGEMENT: AVERAGE DOWN METHOD ===
-          const inventoryDate = new Date().toISOString().split("T")[0];
+          const inventoryDate = invoice.date; // Gunakan date dari invoice, bukan tanggal hari ini
+          const yearMonth = inventoryDate.slice(0, 7); // Format: YYYY-MM
           const randomNum = Math.floor(100000 + Math.random() * 900000);
 
-          // Hitung Purchase Invoice keberapa untuk stock_name & bulan yang sama
-          const { count: purchaseCount, error: countErr } = await supabase
+          // Cek apakah sudah ada data inventory di bulan dan tahun yang sama untuk item ini
+          const { data: existingInMonth, error: countErr } = await supabase
             .from("inventory")
-            .select("id", { count: "exact" })
+            .select("*")
             .eq("stock_name", item_name)
-            .gte("inventory_date", `${inventoryDate.slice(0, 7)}-01`)
-            .lte("inventory_date", `${inventoryDate.slice(0, 7)}-31`);
+            .gte("inventory_date", `${yearMonth}-01`)
+            .lte("inventory_date", `${yearMonth}-31`)
+            .order("inventory_date", { ascending: false });
 
-          if (countErr) throw new Error("Failed to count previous invoices: " + countErr.message);
+          if (countErr) throw new Error("Failed to check existing inventory in month: " + countErr.message);
 
-          const descText = `Purchase Invoice ${purchaseCount + 1}`;
+          const isFirstInMonth = !existingInMonth || existingInMonth.length === 0;
+          const purchaseCount = existingInMonth ? existingInMonth.length : 0;
 
-          // Ambil stok terakhir dari barang (stock_name) untuk bulan berjalan
+          // Tentukan description berdasarkan apakah ini data pertama di bulan tersebut
+          const descText = isFirstInMonth ? "Persediaan Awal" : `Purchase Invoice ${purchaseCount + 1}`;
+
+          // Ambil data inventory terakhir (dari bulan sebelumnya atau bulan yang sama)
           const { data: prevStock, error: prevError } = await supabase.from("inventory").select("*").eq("stock_name", item_name).order("inventory_date", { ascending: false }).limit(1).maybeSingle();
 
           if (prevError) throw new Error("Error fetching previous inventory: " + prevError.message);
 
-          // Variabel stok lama
-          const oldQty = prevStock?.total_qty || 0;
-          const oldStock = prevStock?.total_stock || 0;
+          // Variabel stok lama (dari data sebelumnya, jika ada)
+          const oldTotalQty = prevStock?.total_qty || 0;
+          const oldTotalStock = prevStock?.total_stock || 0;
+          const oldAvgPerUnit = prevStock?.avg_per_unit || 0;
 
-          // Hitung diskon per item
-          let discValue = 0;
+          // Hitung disc_per_item sesuai tipe diskon
+          let discPerItem = 0;
           if (disc_item_type === "percentage") {
-            discValue = price * (disc_item / 100);
-          } else {
-            discValue = disc_item || 0;
+            discPerItem = price * (disc_item / 100);
+          } else if (disc_item_type === "nominal") {
+            discPerItem = disc_item || 0;
           }
 
-          // Hitung total nett purchase (qty × harga bersih + freight + insurance)
-          const nettPurchase = qty * (price - discValue) + freightShare * qty + insuranceShare * qty;
+          // Hitung disc_payment (dari invoice level jika ada)
+          // Asumsi: disc_payment dibagi rata per item berdasarkan qty
+          const discPayment = 0; // Bisa diambil dari invoice.discount_payment jika ada
 
-          // Hitung qty bersih setelah retur
-          const nettQty = qty - (return_unit || 0);
+          // Hitung nett_purchase
+          const nettPurchase = qty * price - discPerItem + freightShare * qty + insuranceShare * qty - discPayment;
 
-          // Hitung total_qty & total_stock baru
-          const newTotalQty = oldQty + nettQty;
-          const newTotalStock = oldStock + nettPurchase;
+          // Hitung nett_price_item
+          const qtyAfterReturn = qty - (return_unit || 0);
+          const nettPriceItem = qtyAfterReturn > 0 ? nettPurchase / qtyAfterReturn : 0;
 
-          // Hitung average per unit baru
-          const newAvg = newTotalQty > 0 ? newTotalStock / newTotalQty : 0;
+          // Tentukan price_sale
+          let priceSale = 0;
+          if (isFirstInMonth) {
+            // Data pertama: price_sale = price_purchase
+            priceSale = price;
+          } else {
+            // Data kedua dan seterusnya: price_sale = avg_per_unit dari data sebelumnya
+            priceSale = oldAvgPerUnit;
+          }
+
+          // Hitung quantity_sale dan return_sale (default 0 karena ini purchase, bukan sale)
+          const quantitySale = 0;
+          const returnSale = 0;
+
+          // Hitung total_sale
+          const totalSale = priceSale * (quantitySale - returnSale);
+
+          // Hitung total_qty baru
+          let newTotalQty = 0;
+          if (isFirstInMonth) {
+            // Data pertama: total_qty = quantity_purchase - return_purchase - quantity_sale
+            newTotalQty = qty - (return_unit || 0) - quantitySale;
+          } else {
+            // Data kedua dst: total_qty = total_qty lama + quantity_purchase - return_purchase - quantity_sale
+            newTotalQty = oldTotalQty + qty - (return_unit || 0) - quantitySale;
+          }
+
+          // Hitung total_stock baru
+          let newTotalStock = 0;
+          if (isFirstInMonth) {
+            // Data pertama: total_stock = nett_purchase - total_sale
+            newTotalStock = nettPurchase - totalSale;
+          } else {
+            // Data kedua dst: total_stock = total_stock lama + nett_purchase - total_sale
+            newTotalStock = oldTotalStock + nettPurchase - totalSale;
+          }
+
+          // Hitung avg_per_unit baru
+          const newAvgPerUnit = newTotalQty > 0 ? newTotalStock / newTotalQty : 0;
+
+          // Hitung total_cogs dengan menjumlahkan semua total_sale di bulan ini
+          // Ambil semua data inventory di bulan yang sama untuk item ini
+          const { data: allInMonthForCogs, error: cogsErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", item_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", `${yearMonth}-31`);
+
+          if (cogsErr) throw new Error("Failed to calculate total_cogs: " + cogsErr.message);
+
+          // Jumlahkan semua total_sale yang sudah ada + total_sale yang baru
+          let calculatedCogs = totalSale; // Mulai dengan total_sale transaksi ini
+          if (allInMonthForCogs && allInMonthForCogs.length > 0) {
+            calculatedCogs += allInMonthForCogs.reduce((sum, record) => sum + (record.total_sale || 0), 0);
+          }
 
           // Insert ke tabel inventory
           const insertData = {
@@ -6599,17 +6656,21 @@ module.exports = async (req, res) => {
             quantity_purchase: qty,
             price_purchase: price,
             return_purchase: return_unit || 0,
-            disc_per_item: discValue,
-            freight_in: Math.round(freightShare * nettQty),
-            insurance: Math.round(insuranceShare * nettQty),
-            disc_payment: 0,
+            quantity_sale: quantitySale,
+            return_sale: returnSale,
+            disc_per_item: Math.round(discPerItem),
+            freight_in: Math.round(freightShare * qty),
+            insurance: Math.round(insuranceShare * qty),
+            disc_payment: Math.round(discPayment),
             nett_purchase: Math.round(nettPurchase),
-            nett_price_item: Math.round(nettQty > 0 ? nettPurchase / nettQty : 0),
+            nett_price_item: Math.round(nettPriceItem),
+            price_sale: Math.round(priceSale),
+            total_sale: Math.round(totalSale),
             type: "Purchase",
-            total_cogs: 0,
+            total_cogs: Math.round(calculatedCogs),
             total_qty: newTotalQty,
             total_stock: Math.round(newTotalStock),
-            avg_per_unit: Math.round(newAvg),
+            avg_per_unit: Math.round(newAvgPerUnit),
             created_at: new Date().toISOString(),
           };
 
@@ -6618,7 +6679,7 @@ module.exports = async (req, res) => {
 
           if (insertErr) throw new Error("Failed to insert inventory: " + insertErr.message);
 
-          console.log(`${item_name} updated — New Avg: ${newAvg.toLocaleString("id-ID")}`);
+          console.log(`${item_name} updated — Desc: ${descText}, New Avg: ${newAvgPerUnit.toLocaleString("id-ID")}`);
 
           // === INSERT KE TABLE STOCK (JIKA BELUM ADA) ===
           const { data: existingStock, error: stockCheckErr } = await supabase.from("stock").select("*").eq("name", item_name).maybeSingle();
@@ -6634,7 +6695,7 @@ module.exports = async (req, res) => {
                 name: item_name,
                 sku: sku,
                 unit: unit,
-                stock_coa: coa,
+                stock_COA: coa,
                 user_id: user.id,
                 created_at: new Date().toISOString(),
               },
