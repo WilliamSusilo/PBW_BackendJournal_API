@@ -2860,7 +2860,7 @@ module.exports = async (req, res) => {
           }
 
           if (existingInvoice && existingInvoice.status === "Completed") {
-            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoice").select("id, number, status").eq("number", item.number);
+            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoice").select("id, number, status").eq("number", existingInvoice.number);
 
             console.log("Fetched billing invoices:", billingInvoices, "Billing error:", billingError);
 
@@ -4739,7 +4739,7 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["approver", "id"];
+          const stringColumns = ["number", "approver", "status"];
           const numericColumns = ["grand_total"];
           const uuidColumns = ["id"];
 
@@ -4750,16 +4750,58 @@ module.exports = async (req, res) => {
 
             const eqIntConditions = [];
             const eqFloatConditions = [];
+            const dateConditions = [];
 
-            if (!isNaN(search) && Number.isInteger(Number(search))) {
-              eqIntConditions.push("number.eq." + Number(search));
-            }
-
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              const value = parseFloat(search);
+            // grand_total search with locale-aware normalization (e.g., 411.639,88 or 411639,88)
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              const value = parseFloat(normalizedSearch);
               eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
             }
 
+            // Date search for 'date' and 'due_date' via text input
+            // Supports: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, partial YYYY-MM or MM-YYYY
+            const parseDateSearch = (searchStr) => {
+              let dateStr = searchStr.trim();
+
+              // YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-\/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Partial: YYYY-MM or YYYY/MM
+              if (/^\d{4}[-\/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Partial: MM-YYYY or MM/YYYY
+              if (/^\d{1,2}[-\/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-\/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              const isPartialDate = parsedDate.split("-").length === 2; // YYYY-MM
+              if (isPartialDate) {
+                dateConditions.push(`date.ilike.${parsedDate}%`);
+                dateConditions.push(`due_date.ilike.${parsedDate}%`);
+              } else {
+                dateConditions.push(`date.eq.${parsedDate}`);
+                dateConditions.push(`due_date.eq.${parsedDate}`);
+              }
+            }
+
+            // Support code like INV-00123 (and INV00123) -> search by numeric part
             const codeMatch = search.match(/^INV-?0*(\d{5,})$/i);
             if (codeMatch) {
               const extractedNumber = parseInt(codeMatch[1], 10);
@@ -4768,7 +4810,7 @@ module.exports = async (req, res) => {
               }
             }
 
-            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
@@ -4839,8 +4881,7 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["tracking_number", "carrier"];
-          const numericColumns = ["grand_total"];
+          const stringColumns = ["tracking_number", "carrier", "status"];
           const uuidColumns = ["id"];
 
           if (uuidColumns.includes("id") && isUUID(search)) {
@@ -4850,16 +4891,66 @@ module.exports = async (req, res) => {
 
             const eqIntConditions = [];
             const eqFloatConditions = [];
+            const dateConditions = [];
 
+            // Allow searching numeric shipment number directly
             if (!isNaN(search) && Number.isInteger(Number(search))) {
               eqIntConditions.push("number.eq." + Number(search));
             }
 
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              const value = parseFloat(search);
-              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
+            // Search for grand_total (float)
+            // Handle comma as decimal separator (e.g., "411639,88" or "411.639,88")
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(normalizedSearch));
             }
 
+            // Search for dates (date, shipping_date)
+            // Support various date formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, and partial YYYY-MM or MM-YYYY
+            const parseDateSearch = (searchStr) => {
+              let dateStr = searchStr.trim();
+
+              // YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Partial date: YYYY-MM or YYYY/MM
+              if (/^\d{4}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Partial date: MM-YYYY or MM/YYYY
+              if (/^\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              const isPartialDate = parsedDate.split("-").length === 2;
+
+              if (isPartialDate) {
+                // For partial dates (YYYY-MM), use ilike to match year-month
+                dateConditions.push(`date.ilike.${parsedDate}%`);
+                dateConditions.push(`shipping_date.ilike.${parsedDate}%`);
+              } else {
+                // For full dates, use exact match
+                dateConditions.push(`date.eq.${parsedDate}`);
+                dateConditions.push(`shipping_date.eq.${parsedDate}`);
+              }
+            }
+
+            // Support code like SH-00123 searching by numeric shipment number
             const codeMatch = search.match(/^SH-?0*(\d{5,})$/i);
             if (codeMatch) {
               const extractedNumber = parseInt(codeMatch[1], 10);
@@ -4868,7 +4959,7 @@ module.exports = async (req, res) => {
               }
             }
 
-            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
@@ -4939,33 +5030,72 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const numericColumns = ["grand_total"];
+          const stringColumns = ["number", "ordered_by", "urgency"];
           const uuidColumns = ["id"];
 
           if (uuidColumns.includes("id") && isUUID(search)) {
             query = query.eq("id", search);
           } else {
-            const eqIntConditions = [];
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+
             const eqFloatConditions = [];
+            const dateConditions = [];
 
-            if (!isNaN(search) && Number.isInteger(Number(search))) {
-              eqIntConditions.push("number.eq." + Number(search));
+            // Search for grand_total and installment_amount (float)
+            // Handle comma as decimal separator (e.g., "411639,88" or "411.639,88")
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(normalizedSearch));
+              eqFloatConditions.push("installment_amount.eq." + parseFloat(normalizedSearch));
             }
 
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              const value = parseFloat(search);
-              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-            }
+            // Search for dates (date, due_date)
+            // Support various date formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, etc.
+            const parseDateSearch = (searchStr) => {
+              // Try to parse date from various formats
+              let dateStr = searchStr.trim();
 
-            const codeMatch = search.match(/^ORD-?0*(\d{5,})$/i);
-            if (codeMatch) {
-              const extractedNumber = parseInt(codeMatch[1], 10);
-              if (!isNaN(extractedNumber)) {
-                eqIntConditions.push("number.eq." + extractedNumber);
+              // Format: YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Format: DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Format: partial date like "2024-01" or "01/2024"
+              if (/^\d{4}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              if (/^\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              // Check if it's a full date or partial (year-month)
+              const isPartialDate = parsedDate.split("-").length === 2;
+
+              if (isPartialDate) {
+                // For partial dates (YYYY-MM), use ilike to match year-month
+                dateConditions.push(`date.ilike.${parsedDate}%`);
+                dateConditions.push(`due_date.ilike.${parsedDate}%`);
+              } else {
+                // For full dates, use exact match
+                dateConditions.push(`date.eq.${parsedDate}`);
+                dateConditions.push(`due_date.eq.${parsedDate}`);
               }
             }
 
-            const searchConditions = [...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
@@ -5036,8 +5166,7 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["discount_terms"];
-          const numericColumns = ["grand_total"];
+          const stringColumns = ["number", "vendor_name", "discount_terms"];
           const uuidColumns = ["id"];
 
           if (uuidColumns.includes("id") && isUUID(search)) {
@@ -5045,27 +5174,65 @@ module.exports = async (req, res) => {
           } else {
             const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-            const eqIntConditions = [];
             const eqFloatConditions = [];
+            const dateConditions = [];
 
-            if (!isNaN(search) && Number.isInteger(Number(search))) {
-              eqIntConditions.push("number.eq." + Number(search));
+            // Search for grand_total (float)
+            // Handle comma as decimal separator (e.g., "411639,88" or "411.639,88")
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(normalizedSearch));
             }
 
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              const value = parseFloat(search);
-              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-            }
+            // Search for dates (date, start_date, expiry_date)
+            // Support various date formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, etc.
+            const parseDateSearch = (searchStr) => {
+              // Try to parse date from various formats
+              let dateStr = searchStr.trim();
 
-            const codeMatch = search.match(/^OFR-?0*(\d{5,})$/i);
-            if (codeMatch) {
-              const extractedNumber = parseInt(codeMatch[1], 10);
-              if (!isNaN(extractedNumber)) {
-                eqIntConditions.push("number.eq." + extractedNumber);
+              // Format: YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Format: DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Format: partial date like "2024-01" or "01/2024"
+              if (/^\d{4}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              if (/^\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              // Check if it's a full date or partial (year-month)
+              const isPartialDate = parsedDate.split("-").length === 2;
+
+              if (isPartialDate) {
+                // For partial dates (YYYY-MM), use ilike to match year-month
+                dateConditions.push(`date.ilike.${parsedDate}%`);
+                dateConditions.push(`start_date.ilike.${parsedDate}%`);
+                dateConditions.push(`expiry_date.ilike.${parsedDate}%`);
+              } else {
+                // For full dates, use exact match
+                dateConditions.push(`date.eq.${parsedDate}`);
+                dateConditions.push(`start_date.eq.${parsedDate}`);
+                dateConditions.push(`expiry_date.eq.${parsedDate}`);
               }
             }
 
-            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
@@ -5136,8 +5303,7 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["requested_by", "urgency"];
-          const numericColumns = ["grand_total"];
+          const stringColumns = ["number", "requested_by", "urgency", "status"];
           const uuidColumns = ["id"];
 
           if (uuidColumns.includes("id") && isUUID(search)) {
@@ -5145,27 +5311,63 @@ module.exports = async (req, res) => {
           } else {
             const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
 
-            const eqIntConditions = [];
             const eqFloatConditions = [];
+            const dateConditions = [];
 
-            if (!isNaN(search) && Number.isInteger(Number(search))) {
-              eqIntConditions.push("number.eq." + Number(search));
+            // Search for grand_total (float)
+            // Handle comma as decimal separator (e.g., "411639,88" or "411.639,88")
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(normalizedSearch));
             }
 
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              const value = parseFloat(search);
-              eqFloatConditions.push(...numericColumns.map((col) => `${col}.eq.${value}`));
-            }
+            // Search for dates (date, due_date)
+            // Support various date formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, etc.
+            const parseDateSearch = (searchStr) => {
+              // Try to parse date from various formats
+              let dateStr = searchStr.trim();
 
-            const codeMatch = search.match(/^REQ-?0*(\d{5,})$/i);
-            if (codeMatch) {
-              const extractedNumber = parseInt(codeMatch[1], 10);
-              if (!isNaN(extractedNumber)) {
-                eqIntConditions.push("number.eq." + extractedNumber);
+              // Format: YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Format: DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Format: partial date like "2024-01" or "01/2024"
+              if (/^\d{4}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              if (/^\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              // Check if it's a full date or partial (year-month)
+              const isPartialDate = parsedDate.split("-").length === 2;
+
+              if (isPartialDate) {
+                // For partial dates (YYYY-MM), use ilike to match year-month
+                dateConditions.push(`date.ilike.${parsedDate}%`);
+                dateConditions.push(`due_date.ilike.${parsedDate}%`);
+              } else {
+                // For full dates, use exact match
+                dateConditions.push(`date.eq.${parsedDate}`);
+                dateConditions.push(`due_date.eq.${parsedDate}`);
               }
             }
 
-            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
@@ -5583,6 +5785,8 @@ module.exports = async (req, res) => {
         const currentDate = new Date().toISOString().split("T")[0]; // contoh: "2025-10-10"
         let installment_count = billing.installment_count || 0;
         let discountRate = 0;
+        let discountDays = 0;
+        let netDays = 0;
         let hasFinalPay;
 
         // ====== Global Discount ======
@@ -5592,94 +5796,15 @@ module.exports = async (req, res) => {
 
           if (match) {
             discountRate = parseFloat(match[1]); // e.g., 2 (%)
-            const discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
-            const netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
-
-            // Jika sudah ada payment_date sebelumnya, gunakan itu sebagai dasar
-            if (billing.payment_date && Array.isArray(billing.payment_date)) {
-              paymentDates = [...billing.payment_date];
-            }
-
-            if (payment_method === "Full Payment") {
-              paymentDates = [{ full_pay: currentDate }];
-            } else if (payment_method === "Partial Payment") {
-              if (installment_count === 0) paymentDates.push({ first_pay: currentDate });
-              if (installment_count === 1) paymentDates.push({ second_pay: currentDate });
-              if (installment_count === 2) paymentDates.push({ third_pay: currentDate });
-              if (installment_count === 3) paymentDates.push({ final_pay: currentDate });
-            }
-
-            // Update data ke database
-            const updateData = {
-              payment_date: paymentDates,
-              updated_at: new Date().toISOString(),
-            };
-
-            const { error: updateError } = await supabase.from("billing_invoice").update(updateData).eq("id", id);
-
-            if (updateError) {
-              return res.status(500).json({
-                error: true,
-                message: "Failed to update payment_date: " + updateError.message,
-              });
-            }
-
-            console.log("DEBUG >> built paymentDates object:", paymentDates);
-
-            // Konversi tanggal invoice dari database
-            const invoiceDateObj = new Date(billing.invoice_date);
-
-            // Ambil tanggal pembayaran terakhir (misalnya pembayaran paling baru)
-            let lastPaymentDate;
-            if (Array.isArray(paymentDates) && paymentDates.length > 0) {
-              // Ambil objek terakhir dalam array, lalu ambil value-nya
-              const lastPaymentEntry = paymentDates[paymentDates.length - 1];
-              lastPaymentDate = Object.values(lastPaymentEntry)[0];
-            } else if (paymentDates.full_pay) {
-              // Jika tipe pembayaran full
-              lastPaymentDate = paymentDates.full_pay;
-            } else {
-              // fallback
-              lastPaymentDate = new Date();
-            }
-
-            // Konversi ke objek Date
-            const paymentDateObj = lastPaymentDate ? new Date(lastPaymentDate) : new Date();
-
-            // CEK perhitungan diff
-            const diffDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
-            const daysLeft = netDays - diffDays;
-            console.log("DEBUG >> diffDays:", diffDays);
-
-            // Deteksi apakah sudah ada final_pay
-            const hasFinalPay = Array.isArray(paymentDates) && paymentDates.some((p) => Object.prototype.hasOwnProperty.call(p, "final_pay"));
-
-            // Deteksi apakah sudah third_pay
-            const hasThirdPay = Array.isArray(paymentDates) && paymentDates.some((p) => Object.prototype.hasOwnProperty.call(p, "third_pay"));
-
-            // ====== Discount eligibility ======
-            if (diffDays <= discountDays) {
-              discountPayment = (total * discountRate) / 100;
-              console.log("DEBUG >> discount applied:", discountPayment);
-              alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDays} days left to claim it.`);
-            }
-
-            // Condition 1: Partial Payment dan still don't have final_pay
-            if (payment_method === "Partial Payment" && !hasFinalPay) {
-              if (daysLeft > 0) {
-                alerts.push(`Partial payment recorded. You have ${daysLeft} day${daysLeft > 1 ? "s" : ""} left before the due date (n/${netDays}).`);
-              }
-              // ⚠️ Condition 2: Already have third_pay, but don't have final_pay, and already overdue
-              else if (hasThirdPay && daysLeft <= 0) {
-                alerts.push("Partial payment recorded (third pay). Invoice is already overdue — final payment is required soon.");
-              }
-            }
+            discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
+            netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
           }
         }
 
         // ====== Installment Payment Handling ======
         let totalPaid = 0;
         let paymentAmount = [];
+        let currentPaymentLabel = null; // 'full_pay' | 'first_pay' | 'second_pay' | 'third_pay' | 'final_pay'
 
         if (!paid_amount || paid_amount <= 0) {
           alerts.push("Invalid paid amount. Please provide a valid positive number.");
@@ -5705,13 +5830,14 @@ module.exports = async (req, res) => {
           // Simpan pembayaran
           paymentAmount.push({ full_pay: paid_amount });
           installment_count = 1;
+          currentPaymentLabel = "full_pay";
           alerts.push("Payment fully settled with Full Payment.");
         }
 
         // === PARTIAL PAYMENT HANDLING ===
         else if (payment_method === "Partial Payment") {
           const minDp = grand_total * 0.1;
-          const hasFinalPay = paymentAmount.some((obj) => obj.hasOwnProperty("final_pay"));
+          hasFinalPay = paymentAmount.some((obj) => obj.hasOwnProperty("final_pay"));
 
           // Jika installment_count belum ada (pembayaran pertama)
           if (installment_count === 0) {
@@ -5727,6 +5853,7 @@ module.exports = async (req, res) => {
 
             paymentAmount.push({ first_pay: paid_amount });
             installment_count += 1;
+            currentPaymentLabel = "first_pay";
             alerts.push(`First installment recorded: ${paid_amount.toLocaleString("id-ID")}.`);
           }
 
@@ -5746,10 +5873,12 @@ module.exports = async (req, res) => {
 
             if (totalAfterPayment === remaining) {
               paymentAmount.push({ final_pay: paid_amount });
+              currentPaymentLabel = "final_pay";
               alerts.push("Final payment completed. Payment fully settled.");
             } else {
               paymentAmount.push({ second_pay: paid_amount });
               installment_count += 1;
+              currentPaymentLabel = "second_pay";
               alerts.push(`Second installment recorded: ${paid_amount.toLocaleString("id-ID")}. Remaining balance = ${(grand_total - totalAfterPayment).toLocaleString("id-ID")}.`);
             }
           }
@@ -5769,10 +5898,12 @@ module.exports = async (req, res) => {
 
             if (totalAfterPayment === remaining) {
               paymentAmount.push({ final_pay: paid_amount });
+              currentPaymentLabel = "final_pay";
               alerts.push("Final payment completed. Payment fully settled.");
             } else {
               paymentAmount.push({ third_pay: paid_amount });
               installment_count += 1;
+              currentPaymentLabel = "third_pay";
               alerts.push(`Third installment recorded: ${paid_amount.toLocaleString("id-ID")}. Remaining balance = ${(grand_total - totalAfterPayment).toLocaleString("id-ID")}.`);
             }
           }
@@ -5796,6 +5927,7 @@ module.exports = async (req, res) => {
             }
 
             paymentAmount.push({ final_pay: paid_amount });
+            currentPaymentLabel = "final_pay";
             installment_count += 1;
             alerts.push("Final payment completed. Payment fully settled.");
           }
@@ -5813,12 +5945,51 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Simpan kembali data ke database
+        // Setelah paymentAmount sukses ditentukan, baru catat paymentDates sinkron dengan paymentAmount
+        if (billing.payment_date && Array.isArray(billing.payment_date)) {
+          paymentDates = [...billing.payment_date];
+        }
+
+        if (payment_method === "Full Payment") {
+          paymentDates = [{ full_pay: currentDate }];
+        } else if (payment_method === "Partial Payment" && currentPaymentLabel) {
+          paymentDates.push({ [currentPaymentLabel]: currentDate });
+        }
+
+        // Perhitungan diskon dan pesan terkait jatuh tempo dilakukan menggunakan currentDate
+        if (discountDays && netDays) {
+          const invoiceDateObj = new Date(billing.invoice_date);
+          const paymentDateObj = new Date(currentDate);
+          const diffDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
+          const daysLeft = netDays - diffDays;
+
+          // Update flag setelah paymentAmount diperbarui
+          hasFinalPay = Array.isArray(paymentAmount) && paymentAmount.some((p) => Object.prototype.hasOwnProperty.call(p, "final_pay"));
+          const hasThirdPay = Array.isArray(paymentAmount) && paymentAmount.some((p) => Object.prototype.hasOwnProperty.call(p, "third_pay"));
+
+          // Discount eligibility
+          if (diffDays <= discountDays) {
+            discountPayment = (total * discountRate) / 100;
+            alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDays} days left to claim it.`);
+          }
+
+          // Reminder messages for partial payment
+          if (payment_method === "Partial Payment" && !hasFinalPay) {
+            if (daysLeft > 0) {
+              alerts.push(`Partial payment recorded. You have ${daysLeft} day${daysLeft > 1 ? "s" : ""} left before the due date (n/${netDays}).`);
+            } else if (hasThirdPay && daysLeft <= 0) {
+              alerts.push("Partial payment recorded (third pay). Invoice is already overdue — final payment is required soon.");
+            }
+          }
+        }
+
+        // Simpan kembali data ke database (payment_amount, installment_count, dan payment_date disatukan)
         const { error: updateBillingError } = await supabase
           .from("billing_invoice")
           .update({
             payment_amount: paymentAmount,
             installment_count: installment_count,
+            payment_date: paymentDates,
           })
           .eq("id", billing.id);
 
@@ -5831,13 +6002,6 @@ module.exports = async (req, res) => {
 
         // ====== Total Qty Calculation (for proportional discount/penalty allocation) ======
         const totalQty = itemsRaw.reduce((sum, i) => sum + (i.qty - (i.return_unit || 0)), 0);
-
-        // ====== Loop Items (allocate discount proportionally to inventory) ======
-        // for (const item of itemsRaw) {
-        //   const { qty } = item;
-        //   const itemDiscount = discountPayment > 0 ? (discountPayment / totalQty) * qty : 0;
-        //   totalInventory += itemDiscount;
-        // }
 
         // Buat journal entry utama
         const { data: journal, error: journalError } = await supabase
@@ -6150,7 +6314,7 @@ module.exports = async (req, res) => {
           .from("journal_entries")
           .insert({
             transaction_number: `ORD-${billingOrder.number}`,
-            description: `Journal for Billing Order`,
+            description: `Journal for Billing Order ${billingOrderId}`,
             user_id: user.id,
             entry_date: new Date().toISOString().split("T")[0],
             created_at: new Date(),
@@ -6322,7 +6486,7 @@ module.exports = async (req, res) => {
           .insert([
             {
               entry_date: new Date().toISOString().split("T")[0],
-              description: `Create Journal Entries for Purchase with ID = ${id}`,
+              description: `Journal for Invoice ${id}`,
               transaction_number: `INV-${number}`,
               user_id: user.id,
             },
@@ -6342,7 +6506,7 @@ module.exports = async (req, res) => {
         const inventoryRecords = [];
 
         for (const item of items) {
-          const { coa, item_name, sku, qty, price, disc_item, disc_item_type, return_unit } = item;
+          const { coa, item_name, sku, qty, unit, price, disc_item, disc_item_type, return_unit } = item;
 
           // Hitung gross & diskon per item
           let discountedPrice;
@@ -6352,12 +6516,12 @@ module.exports = async (req, res) => {
           if (disc_item_type === "percentage") {
             discountedPrice = price - (price * disc_item) / 100;
             gross = (discountedPrice + freightShare + insuranceShare) * qty;
-          } else if (disc_item_type === "rupiah") {
+          } else if (disc_item_type === "nominal") {
             gross = (price + freightShare + insuranceShare - disc_item) * qty;
           }
 
           if (return_unit > 0) {
-            let returnedDiscountedPrice = disc_item_type === "percentage" ? price - (price * disc_item) / 100 : price - (disc_item_type === "rupiah" ? disc_item / qty : 0);
+            let returnedDiscountedPrice = disc_item_type === "percentage" ? price - (price * disc_item) / 100 : price - (disc_item_type === "nominal" ? disc_item / qty : 0);
 
             console.log("Ini returnedDiscountedPrice = ", returnedDiscountedPrice);
 
@@ -6379,25 +6543,111 @@ module.exports = async (req, res) => {
             transaction_number: `INV-${number}`,
           });
 
-          // Tambahan: Insert ke inventory
+          // === INVENTORY MANAGEMENT: AVERAGE DOWN METHOD ===
           const inventoryDate = new Date().toISOString().split("T")[0];
-          const purchaseCount = (await supabase.from("inventory").select("id", { count: "exact" }).ilike("description", `Purchase Invoice%`).eq("inventory_date", inventoryDate)).count || 0;
+          const randomNum = Math.floor(100000 + Math.random() * 900000);
+
+          // Hitung Purchase Invoice keberapa untuk stock_name & bulan yang sama
+          const { count: purchaseCount, error: countErr } = await supabase
+            .from("inventory")
+            .select("id", { count: "exact" })
+            .eq("stock_name", item_name)
+            .gte("inventory_date", `${inventoryDate.slice(0, 7)}-01`)
+            .lte("inventory_date", `${inventoryDate.slice(0, 7)}-31`);
+
+          if (countErr) throw new Error("Failed to count previous invoices: " + countErr.message);
 
           const descText = `Purchase Invoice ${purchaseCount + 1}`;
 
-          inventoryRecords.push({
+          // Ambil stok terakhir dari barang (stock_name) untuk bulan berjalan
+          const { data: prevStock, error: prevError } = await supabase.from("inventory").select("*").eq("stock_name", item_name).order("inventory_date", { ascending: false }).limit(1).maybeSingle();
+
+          if (prevError) throw new Error("Error fetching previous inventory: " + prevError.message);
+
+          // Variabel stok lama
+          const oldQty = prevStock?.total_qty || 0;
+          const oldStock = prevStock?.total_stock || 0;
+
+          // Hitung diskon per item
+          let discValue = 0;
+          if (disc_item_type === "percentage") {
+            discValue = price * (disc_item / 100);
+          } else {
+            discValue = disc_item || 0;
+          }
+
+          // Hitung total nett purchase (qty × harga bersih + freight + insurance)
+          const nettPurchase = qty * (price - discValue) + freightShare * qty + insuranceShare * qty;
+
+          // Hitung qty bersih setelah retur
+          const nettQty = qty - (return_unit || 0);
+
+          // Hitung total_qty & total_stock baru
+          const newTotalQty = oldQty + nettQty;
+          const newTotalStock = oldStock + nettPurchase;
+
+          // Hitung average per unit baru
+          const newAvg = newTotalQty > 0 ? newTotalStock / newTotalQty : 0;
+
+          // Insert ke tabel inventory
+          const insertData = {
+            number: `INV-${randomNum}`,
+            user_id: user.id,
+            stock_name: item_name,
             inventory_date: inventoryDate,
             description: descText,
-            quantity: qty,
-            price: price,
-            return: return_unit,
-            disc_per_item: disc_item,
-            freight_in: freightShare * qty,
-            insurance: insuranceShare * qty,
+            quantity_purchase: qty,
+            price_purchase: price,
+            return_purchase: return_unit || 0,
+            disc_per_item: discValue,
+            freight_in: Math.round(freightShare * nettQty),
+            insurance: Math.round(insuranceShare * nettQty),
             disc_payment: 0,
-            nett_purchase: net,
-            nett_price_item: qty > 0 ? net / qty : 0,
-          });
+            nett_purchase: Math.round(nettPurchase),
+            nett_price_item: Math.round(nettQty > 0 ? nettPurchase / nettQty : 0),
+            type: "Purchase",
+            total_cogs: 0,
+            total_qty: newTotalQty,
+            total_stock: Math.round(newTotalStock),
+            avg_per_unit: Math.round(newAvg),
+            created_at: new Date().toISOString(),
+          };
+
+          // Simpan data
+          const { error: insertErr } = await supabase.from("inventory").insert([insertData]);
+
+          if (insertErr) throw new Error("Failed to insert inventory: " + insertErr.message);
+
+          console.log(`${item_name} updated — New Avg: ${newAvg.toLocaleString("id-ID")}`);
+
+          // === INSERT KE TABLE STOCK (JIKA BELUM ADA) ===
+          const { data: existingStock, error: stockCheckErr } = await supabase.from("stock").select("*").eq("name", item_name).maybeSingle();
+
+          if (stockCheckErr) {
+            throw new Error("Failed to check existing stock: " + stockCheckErr.message);
+          }
+
+          // Hanya insert jika belum ada SKU yang sama
+          if (!existingStock) {
+            const { error: stockInsertErr } = await supabase.from("stock").insert([
+              {
+                name: item_name,
+                sku: sku,
+                unit: unit,
+                stock_coa: coa,
+                user_id: user.id,
+                created_at: new Date().toISOString(),
+              },
+            ]);
+
+            if (stockInsertErr) {
+              throw new Error("Failed to insert new stock record: " + stockInsertErr.message);
+            }
+
+            console.log(`New stock added: ${item_name} (${sku})`);
+          } else {
+            console.log(`Stock for ${item_name} (${sku}) already exists, skipped insert.`);
+          }
         }
 
         // Insert data ke inventory table
@@ -6835,6 +7085,7 @@ module.exports = async (req, res) => {
               installment_amount: request.installment_amount,
               ppn,
               paid_amount,
+              grand_total: request.grand_total,
               status: "Pending",
             },
           ]);
@@ -7636,7 +7887,7 @@ module.exports = async (req, res) => {
         if (status) query = query.eq("status", status);
 
         if (search) {
-          const stringColumns = ["vendor_name"];
+          const stringColumns = ["vendor_name", "status", "number"];
           const uuidColumns = ["id"];
 
           if (uuidColumns.includes("id") && isUUID(search)) {
@@ -7646,25 +7897,64 @@ module.exports = async (req, res) => {
 
             const eqIntConditions = [];
             const eqFloatConditions = [];
+            const dateConditions = [];
 
-            if (!isNaN(search) && Number.isInteger(Number(search))) {
-              eqIntConditions.push("number.eq." + Number(search));
+            // Search for grand_total (float)
+            // Handle comma as decimal separator (e.g., "411639,88" or "411.639,88")
+            let normalizedSearch = search.replace(/\./g, "").replace(/,/g, ".");
+            if (!isNaN(normalizedSearch) && !Number.isNaN(parseFloat(normalizedSearch))) {
+              eqFloatConditions.push("grand_total.eq." + parseFloat(normalizedSearch));
             }
 
-            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-              eqFloatConditions.push("grand_total.eq." + parseFloat(search));
-            }
+            // Search for dates (quotation_date, start_date, valid_until)
+            // Support various date formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, etc.
+            const parseDateSearch = (searchStr) => {
+              // Try to parse date from various formats
+              let dateStr = searchStr.trim();
 
-            // For detect search like "Quotation #00588"
-            const codeMatch = search.match(/^quotation\s?#?0*(\d{7,})$/i);
-            if (codeMatch) {
-              const extractedNumber = parseInt(codeMatch[1], 10);
-              if (!isNaN(extractedNumber)) {
-                eqIntConditions.push("number.eq." + extractedNumber);
+              // Format: YYYY-MM-DD or YYYY/MM/DD
+              if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              // Format: DD-MM-YYYY or DD/MM/YYYY
+              if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              }
+
+              // Format: partial date like "2024-01" or "01/2024"
+              if (/^\d{4}[-/]\d{1,2}$/.test(dateStr)) {
+                return dateStr.replace(/\//g, "-");
+              }
+
+              if (/^\d{1,2}[-/]\d{4}$/.test(dateStr)) {
+                const parts = dateStr.split(/[-/]/);
+                return `${parts[1]}-${parts[0].padStart(2, "0")}`;
+              }
+
+              return null;
+            };
+
+            const parsedDate = parseDateSearch(search);
+            if (parsedDate) {
+              // Check if it's a full date or partial (year-month)
+              const isPartialDate = parsedDate.split("-").length === 2;
+
+              if (isPartialDate) {
+                // For partial dates (YYYY-MM), use ilike to match year-month
+                dateConditions.push(`quotation_date.ilike.${parsedDate}%`);
+                dateConditions.push(`start_date.ilike.${parsedDate}%`);
+                dateConditions.push(`valid_until.ilike.${parsedDate}%`);
+              } else {
+                // For full dates, use exact match
+                dateConditions.push(`quotation_date.eq.${parsedDate}`);
+                dateConditions.push(`start_date.eq.${parsedDate}`);
+                dateConditions.push(`valid_until.eq.${parsedDate}`);
               }
             }
 
-            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions].join(",");
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqFloatConditions, ...dateConditions].join(",");
             query = query.or(searchConditions);
           }
         }
