@@ -340,6 +340,90 @@ module.exports = async (req, res) => {
             message: "Failed to insert Bill of Material: " + insertErr.message,
           });
         }
+        // Also insert a production_plan record derived from this BOM
+        try {
+          const mappedProcesses = processedProcesses.map((p) => ({
+            process_name: p.process_name,
+            job_desc: p.job_desc,
+            direct_material: (p.direct_material || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              qty: Number(i.qty) || 0,
+              unit: i.unit ?? null,
+              price: Number(i.price) || 0,
+            })),
+            direct_labor: (p.direct_labor || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              qty: Number(i.qty) || 0,
+              unit: i.unit ?? null,
+              order_compl_time: Number(i.order_compl_time) || 0,
+              rate_per_hours: Number(i.rate_per_hours) || 0,
+            })),
+            indirect_material: (p.indirect_material || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              qty: Number(i.qty) || 0,
+              unit: i.unit ?? null,
+              price: Number(i.price) || 0,
+            })),
+            indirect_labor: (p.indirect_labor || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              qty: Number(i.qty) || 0,
+              unit: i.unit ?? null,
+              order_compl_time: Number(i.order_compl_time) || 0,
+              rate_per_hours: Number(i.rate_per_hours) || 0,
+            })),
+            items_depreciation: (p.items_depreciation || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              qty: Number(i.qty) || 0,
+              unit: i.unit ?? null,
+              rate_estimated: Number(i.rate_estimated) || 0,
+            })),
+            utilities_cost: (p.utilities_cost || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              unit: i.unit ?? null,
+              est_qty: Number(i.est_qty) || 0,
+              price: Number(i.price) || 0,
+            })),
+            other_foc: (p.other_foc || []).map((i) => ({
+              coa: i.coa ?? null,
+              item_name: i.item_name ?? i.name ?? null,
+              desc: i.desc ?? null,
+              unit: i.unit ?? null,
+              price: Number(i.price) || 0,
+              est_qty: Number(i.est_qty) || 0,
+            })),
+          }));
+
+          const { error: insertPlanErr } = await supabase.from("production_plan").insert([
+            {
+              user_id: user.id,
+              product_name: bom_name,
+              sku,
+              qty_goods_est: Number(qty_goods_est) || 0,
+              category,
+              processes: mappedProcesses,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+
+          if (insertPlanErr) {
+            return res.status(500).json({ error: true, message: "Failed to create production plan: " + insertPlanErr.message });
+          }
+        } catch (err) {
+          return res.status(500).json({ error: true, message: "Failed to create production plan: " + err.message });
+        }
 
         return res.status(201).json({
           error: false,
@@ -695,7 +779,6 @@ module.exports = async (req, res) => {
           description,
           sales_COA,
           cogs_COA,
-          acc_info,
           items_product,
           // legacy fields (optional, used to construct items_product if items_product not provided)
           stock_COA,
@@ -758,7 +841,6 @@ module.exports = async (req, res) => {
             sales_COA,
             cogs_COA,
             company_type: "Service",
-            acc_info: acc_info ?? null,
             items_product: itemsProductPayload,
             created_at: new Date().toISOString(),
           },
@@ -1048,7 +1130,6 @@ module.exports = async (req, res) => {
           description,
           sales_COA,
           cogs_COA,
-          acc_info,
           items_product,
           // legacy (optional)
           stock_COA,
@@ -1100,7 +1181,6 @@ module.exports = async (req, res) => {
             sales_COA,
             cogs_COA,
             company_type: "Service",
-            acc_info: acc_info ?? null,
             items_product: itemsProductPayload,
             updated_at: new Date().toISOString(),
           })
@@ -1514,6 +1594,232 @@ module.exports = async (req, res) => {
       }
 
       // Non-existent Endpoint
+      // Edit Production Plan Endpoint
+      case "editProductionPlan": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editProductionPlan." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id, prod_code, job_order_num, total_prod_order, warehouse, schedule } = req.body;
+
+        if (!id) return res.status(400).json({ error: true, message: "Production plan id is required" });
+        if (total_prod_order === undefined || total_prod_order === null) return res.status(400).json({ error: true, message: "total_prod_order is required" });
+
+        const toNum = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
+
+        // Auto-create warehouse(s) if provided and don't exist (same logic as editStock)
+        let warehouseAutoCreated = [];
+        if (warehouse) {
+          const warehouseResult = await ensureWarehouseExists(supabase, user.id, warehouse);
+          if (!warehouseResult.success) {
+            return res.status(500).json({ error: true, message: warehouseResult.error });
+          }
+          warehouseAutoCreated = warehouseResult.createdWarehouses || [];
+        }
+
+        // Fetch existing production plan
+        const { data: existingPlan, error: fetchError } = await supabase.from("production_plan").select("*").eq("id", id).single();
+
+        if (fetchError || !existingPlan) return res.status(404).json({ error: true, message: "Production plan not found" });
+
+        const existingProcesses = Array.isArray(existingPlan.processes) ? existingPlan.processes : [];
+
+        // Recalculate processes based on total_prod_order
+        let agg_total_direct_material = 0;
+        let agg_total_direct_labor = 0;
+        let agg_total_indirect_material = 0;
+        let agg_total_indirect_labor = 0;
+        let agg_total_items_depreciation = 0;
+        let agg_total_utilities_cost = 0;
+        let agg_total_other_foc = 0;
+
+        const updatedProcesses = existingProcesses.map((p) => {
+          const direct_material = (p.direct_material || []).map((it) => {
+            const baseQty = toNum(it.qty);
+            const newQty = baseQty * toNum(total_prod_order);
+            const price = toNum(it.price);
+            const total = newQty * price;
+            agg_total_direct_material += total;
+            return {
+              ...it,
+              qty: newQty,
+              price,
+              total,
+            };
+          });
+
+          const direct_labor = (p.direct_labor || []).map((it) => {
+            const qty = toNum(it.qty);
+            const baseOrder = toNum(it.order_compl_time);
+            const newOrder = baseOrder * toNum(total_prod_order);
+            const rate_per_hours = toNum(it.rate_per_hours);
+            const total_est_rate = qty * newOrder * rate_per_hours;
+            agg_total_direct_labor += total_est_rate;
+            return {
+              ...it,
+              order_compl_time: newOrder,
+              rate_per_hours,
+              total_est_rate,
+            };
+          });
+
+          const indirect_material = (p.indirect_material || []).map((it) => {
+            const baseQty = toNum(it.qty);
+            const newQty = baseQty * toNum(total_prod_order);
+            const price = toNum(it.price);
+            const total = newQty * price;
+            agg_total_indirect_material += total;
+            return {
+              ...it,
+              qty: newQty,
+              price,
+              total,
+            };
+          });
+
+          const indirect_labor = (p.indirect_labor || []).map((it) => {
+            const qty = toNum(it.qty);
+            const baseOrder = toNum(it.order_compl_time);
+            const newOrder = baseOrder * toNum(total_prod_order);
+            const rate_per_hours = toNum(it.rate_per_hours);
+            const total_est_rate = qty * newOrder * rate_per_hours;
+            agg_total_indirect_labor += total_est_rate;
+            return {
+              ...it,
+              order_compl_time: newOrder,
+              rate_per_hours,
+              total_est_rate,
+            };
+          });
+
+          const items_depreciation = (p.items_depreciation || []).map((it) => {
+            const rate_estimated = toNum(it.rate_estimated);
+            const total_est_rate = toNum(total_prod_order) * rate_estimated;
+            agg_total_items_depreciation += total_est_rate;
+            return {
+              ...it,
+              rate_estimated,
+              total_est_rate,
+            };
+          });
+
+          const utilities_cost = (p.utilities_cost || []).map((it) => {
+            const baseEst = toNum(it.est_qty);
+            const newEst = baseEst * toNum(total_prod_order);
+            const rate = toNum(it.price);
+            const total_est_rate = newEst * rate;
+            agg_total_utilities_cost += total_est_rate;
+            return {
+              ...it,
+              est_qty: newEst,
+              rate,
+              total_est_rate,
+            };
+          });
+
+          const other_foc = (p.other_foc || []).map((it) => {
+            const baseEst = toNum(it.est_qty);
+            const newEst = baseEst * toNum(total_prod_order);
+            const rate = toNum(it.price);
+            const total_est_rate = newEst * rate;
+            agg_total_other_foc += total_est_rate;
+            return {
+              ...it,
+              est_qty: newEst,
+              rate,
+              total_est_rate,
+            };
+          });
+
+          return {
+            process_name: p.process_name,
+            job_desc: p.job_desc,
+            direct_material,
+            direct_labor,
+            indirect_material,
+            indirect_labor,
+            items_depreciation,
+            utilities_cost,
+            other_foc,
+          };
+        });
+
+        // Aggregate totals
+        const total_foc_est = agg_total_indirect_material + agg_total_indirect_labor + agg_total_items_depreciation + agg_total_utilities_cost + agg_total_other_foc;
+        const total_cogm_est = agg_total_direct_material + agg_total_direct_labor + total_foc_est;
+        // total_qty_goods_est = total_prod_order * qty_goods_est (from BOM/production plan)
+        const total_qty_goods_est = toNum(total_prod_order) * toNum(existingPlan.qty_goods_est);
+        const cogm_unit_est = total_qty_goods_est ? total_cogm_est / total_qty_goods_est : 0;
+
+        // Update production_plan
+        const { error: updateErr } = await supabase
+          .from("production_plan")
+          .update({
+            prod_code: prod_code ?? existingPlan.prod_code,
+            job_order_num: job_order_num ?? existingPlan.job_order_num,
+            total_prod_order: toNum(total_prod_order),
+            warehouse: warehouse ?? existingPlan.warehouse,
+            schedule: schedule ?? existingPlan.schedule,
+            processes: updatedProcesses,
+            total_qty_goods_est: round2(total_qty_goods_est),
+            total_direct_material: round2(agg_total_direct_material),
+            total_direct_labor: round2(agg_total_direct_labor),
+            total_indirect_material: round2(agg_total_indirect_material),
+            total_indirect_labor: round2(agg_total_indirect_labor),
+            total_items_depreciation: round2(agg_total_items_depreciation),
+            total_utilities_cost: round2(agg_total_utilities_cost),
+            total_other_foc: round2(agg_total_other_foc),
+            total_foc_est: round2(total_foc_est),
+            total_cogm_est: round2(total_cogm_est),
+            cogm_unit_est: round2(cogm_unit_est),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id);
+
+        if (updateErr) {
+          return res.status(500).json({ error: true, message: "Failed to update production plan: " + updateErr.message });
+        }
+
+        // Build response message and include info about any auto-created warehouses
+        let responseMessage = "Production plan updated successfully";
+        if (warehouseAutoCreated.length > 0) {
+          const createdList = warehouseAutoCreated.map((w) => `"${w}"`).join(", ");
+          responseMessage += ` (Warehouse${warehouseAutoCreated.length > 1 ? "s" : ""} ${createdList} auto-created)`;
+        }
+
+        return res.status(200).json({
+          error: false,
+          message: responseMessage,
+          data: {
+            id,
+            total_qty_goods_est: round2(total_qty_goods_est),
+            total_direct_material: round2(agg_total_direct_material),
+            total_direct_labor: round2(agg_total_direct_labor),
+            total_indirect_material: round2(agg_total_indirect_material),
+            total_indirect_labor: round2(agg_total_indirect_labor),
+            total_items_depreciation: round2(agg_total_items_depreciation),
+            total_utilities_cost: round2(agg_total_utilities_cost),
+            total_other_foc: round2(agg_total_other_foc),
+            total_foc_est: round2(total_foc_est),
+            total_cogm_est: round2(total_cogm_est),
+            cogm_unit_est: round2(cogm_unit_est),
+          },
+        });
+      }
+
       default:
         return res.status(404).json({ error: true, message: "Endpoint not found" });
     }

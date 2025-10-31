@@ -5983,13 +5983,19 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Simpan kembali data ke database (payment_amount, installment_count, dan payment_date disatukan)
+        // Hitung total pembayaran setelah update untuk menentukan remaining balance
+        const totalPaidUpdated = Array.isArray(paymentAmount) ? paymentAmount.reduce((sum, obj) => sum + Number(Object.values(obj)[0] || 0), 0) : 0;
+
+        const newRemainBalance = Number(grand_total) - Number(totalPaidUpdated);
+
+        // Simpan kembali data ke database (payment_amount, installment_count, payment_date, dan remain_balance)
         const { error: updateBillingError } = await supabase
           .from("billing_invoice")
           .update({
             payment_amount: paymentAmount,
             installment_count: installment_count,
             payment_date: paymentDates,
+            remain_balance: newRemainBalance,
           })
           .eq("id", billing.id);
 
