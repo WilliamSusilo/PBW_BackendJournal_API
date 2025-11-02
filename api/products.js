@@ -340,89 +340,108 @@ module.exports = async (req, res) => {
             message: "Failed to insert Bill of Material: " + insertErr.message,
           });
         }
-        // Also insert a production_plan record derived from this BOM
-        try {
-          const mappedProcesses = processedProcesses.map((p) => ({
-            process_name: p.process_name,
-            job_desc: p.job_desc,
-            direct_material: (p.direct_material || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              qty: Number(i.qty) || 0,
-              unit: i.unit ?? null,
-              price: Number(i.price) || 0,
-            })),
-            direct_labor: (p.direct_labor || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              qty: Number(i.qty) || 0,
-              unit: i.unit ?? null,
-              order_compl_time: Number(i.order_compl_time) || 0,
-              rate_per_hours: Number(i.rate_per_hours) || 0,
-            })),
-            indirect_material: (p.indirect_material || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              qty: Number(i.qty) || 0,
-              unit: i.unit ?? null,
-              price: Number(i.price) || 0,
-            })),
-            indirect_labor: (p.indirect_labor || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              qty: Number(i.qty) || 0,
-              unit: i.unit ?? null,
-              order_compl_time: Number(i.order_compl_time) || 0,
-              rate_per_hours: Number(i.rate_per_hours) || 0,
-            })),
-            items_depreciation: (p.items_depreciation || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              qty: Number(i.qty) || 0,
-              unit: i.unit ?? null,
-              rate_estimated: Number(i.rate_estimated) || 0,
-            })),
-            utilities_cost: (p.utilities_cost || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              unit: i.unit ?? null,
-              est_qty: Number(i.est_qty) || 0,
-              price: Number(i.price) || 0,
-            })),
-            other_foc: (p.other_foc || []).map((i) => ({
-              coa: i.coa ?? null,
-              item_name: i.item_name ?? i.name ?? null,
-              desc: i.desc ?? null,
-              unit: i.unit ?? null,
-              price: Number(i.price) || 0,
-              est_qty: Number(i.est_qty) || 0,
-            })),
-          }));
-
-          const { error: insertPlanErr } = await supabase.from("production_plan").insert([
+        // If this BOM is used to create a product for job order, insert Product instead
+        if (job_order_product === true || job_order_product === "true") {
+          const { error: insertProductError } = await supabase.from("products").insert([
             {
               user_id: user.id,
-              product_name: bom_name,
+              name: bom_name,
               sku,
-              qty_goods_est: Number(qty_goods_est) || 0,
               category,
-              processes: mappedProcesses,
               created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
             },
           ]);
 
-          if (insertPlanErr) {
-            return res.status(500).json({ error: true, message: "Failed to create production plan: " + insertPlanErr.message });
+          if (insertProductError) {
+            return res.status(500).json({ error: true, message: "Failed to create product from BOM: " + insertProductError.message });
           }
-        } catch (err) {
-          return res.status(500).json({ error: true, message: "Failed to create production plan: " + err.message });
+        }
+
+        // Otherwise create a production_plan derived from this BOM
+        else {
+          try {
+            const mappedProcesses = processedProcesses.map((p) => ({
+              process_name: p.process_name,
+              job_desc: p.job_desc,
+              direct_material: (p.direct_material || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                qty: Number(i.qty) || 0,
+                unit: i.unit ?? null,
+                price: Number(i.price) || 0,
+              })),
+              direct_labor: (p.direct_labor || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                qty: Number(i.qty) || 0,
+                unit: i.unit ?? null,
+                order_compl_time: Number(i.order_compl_time) || 0,
+                rate_per_hours: Number(i.rate_per_hours) || 0,
+              })),
+              indirect_material: (p.indirect_material || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                qty: Number(i.qty) || 0,
+                unit: i.unit ?? null,
+                price: Number(i.price) || 0,
+              })),
+              indirect_labor: (p.indirect_labor || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                qty: Number(i.qty) || 0,
+                unit: i.unit ?? null,
+                order_compl_time: Number(i.order_compl_time) || 0,
+                rate_per_hours: Number(i.rate_per_hours) || 0,
+              })),
+              items_depreciation: (p.items_depreciation || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                qty: Number(i.qty) || 0,
+                unit: i.unit ?? null,
+                rate_estimated: Number(i.rate_estimated) || 0,
+              })),
+              utilities_cost: (p.utilities_cost || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                unit: i.unit ?? null,
+                est_qty: Number(i.est_qty) || 0,
+                price: Number(i.price) || 0,
+              })),
+              other_foc: (p.other_foc || []).map((i) => ({
+                coa: i.coa ?? null,
+                item_name: i.item_name ?? i.name ?? null,
+                desc: i.desc ?? null,
+                unit: i.unit ?? null,
+                price: Number(i.price) || 0,
+                est_qty: Number(i.est_qty) || 0,
+              })),
+            }));
+
+            const { error: insertPlanErr } = await supabase.from("production_plan").insert([
+              {
+                user_id: user.id,
+                product_name: bom_name,
+                sku,
+                qty_goods_est: Number(qty_goods_est) || 0,
+                category,
+                processes: mappedProcesses,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ]);
+
+            if (insertPlanErr) {
+              return res.status(500).json({ error: true, message: "Failed to create production plan: " + insertPlanErr.message });
+            }
+          } catch (err) {
+            return res.status(500).json({ error: true, message: "Failed to create production plan: " + err.message });
+          }
         }
 
         return res.status(201).json({
@@ -1273,10 +1292,11 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, message: "Warehouse updated successfully" });
       }
 
-      // Delete Product, Warehouse, Bill of Material, Stock Endpoint
+      // Delete Product, Warehouse, Bill of Material, Production Plan, Stock Endpoint
       case "deleteProduct":
       case "deleteWarehouse":
       case "deleteBillOfMaterial":
+      case "deleteProductionPlan":
       case "deleteStock": {
         if (method !== "DELETE") {
           return res.status(405).json({ error: true, message: `Method not allowed. Use DELETE for ${action}.` });
@@ -1337,8 +1357,9 @@ module.exports = async (req, res) => {
           });
         }
 
-        const tableName = action === "deleteProduct" ? "products" : action === "deleteWarehouse" ? "warehouses" : action === "deleteBillOfMaterial" ? "bill_of_material" : "stock";
-        const entityName = action === "deleteProduct" ? "Product" : action === "deleteWarehouse" ? "Warehouse" : action === "deleteBillOfMaterial" ? "Bill of Material" : "Stock";
+        const tableName = action === "deleteProduct" ? "products" : action === "deleteWarehouse" ? "warehouses" : action === "deleteBillOfMaterial" ? "bill_of_material" : action === "deleteProductionPlan" ? "production_plan" : "stock";
+
+        const entityName = action === "deleteProduct" ? "Product" : action === "deleteWarehouse" ? "Warehouse" : action === "deleteBillOfMaterial" ? "Bill of Material" : action === "deleteProductionPlan" ? "Production Plan" : "Stock";
 
         const { data: record, error: fetchError } = await supabase.from(tableName).select("*").eq("id", id);
 
@@ -1420,6 +1441,65 @@ module.exports = async (req, res) => {
         const { data, error: fetchError } = await query;
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch bill of materials: " + fetchError.message });
+        }
+
+        return res.status(200).json({ error: false, data });
+      }
+
+      // Get Production Plans Endpoint
+      case "getProductionPlan": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getProductionPlan." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const filterCategory = req.query.category;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("production_plan").select("*").order("created_at", { ascending: false }).range(from, to);
+
+        if (filterCategory) {
+          query = query.eq("category", filterCategory);
+        }
+
+        if (search) {
+          const stringColumns = ["product_name", "sku", "category", "process_name", "job_desc"];
+          const numericColumns = ["qty_goods_est", "total_qty_goods_est", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const eqNumericConditions = [];
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error: fetchError } = await query;
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch production plans: " + fetchError.message });
         }
 
         return res.status(200).json({ error: false, data });

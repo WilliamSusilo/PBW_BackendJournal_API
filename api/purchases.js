@@ -2442,6 +2442,7 @@ module.exports = async (req, res) => {
             user_id: user.id,
             memo,
             installment_COA,
+            installment_amount,
             payment_COA,
             installment_name,
             payment_name,
