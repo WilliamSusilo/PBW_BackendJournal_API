@@ -2062,70 +2062,109 @@ module.exports = async (req, res) => {
         let total_indirect_material_actual = 0;
         let total_items_depreciation_actual = 0;
 
+        // helper: find estimated item from existing plan by process and array name
+        const findEst = (procName, arrName, coa, itemName) => {
+          if (!Array.isArray(existingWIP.processes)) return null;
+          const estProc = existingWIP.processes.find((ep) => ep.process_name === procName);
+          if (!estProc) return null;
+          const estArr = Array.isArray(estProc[arrName]) ? estProc[arrName] : [];
+          return estArr.find((x) => (x.coa && coa && String(x.coa) === String(coa)) || (x.item_name && itemName && String(x.item_name) === String(itemName)));
+        };
+
         const processedActuals = (Array.isArray(processesActual) ? processesActual : []).map((p) => {
           // other_foc_actual
           const other_foc_actual = (p.other_foc_actual || []).map((it) => {
-            const rate = toNum(it.rate);
-            const est_qty = toNum(it.est_qty);
+            const est = findEst(p.process_name, "other_foc", it.coa, it.item_name);
+            const rate = toNum(it.rate ?? est?.rate ?? est?.price ?? 0);
+            const est_qty = toNum(it.est_qty ?? est?.est_qty ?? 0);
+            const price = toNum(it.price ?? est?.price ?? rate);
+            const item_name = it.item_name ?? est?.item_name ?? null;
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
             const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
             total_other_foc_actual += total_est_rate;
-            return { ...it, rate, est_qty, total_est_rate };
+            return { ...est, ...it, desc, unit, rate, price, est_qty, item_name, total_est_rate };
           });
 
           // direct_labor_actual
           const direct_labor_actual = (p.direct_labor_actual || []).map((it) => {
-            const qty = toNum(it.qty);
-            const order_compl_time = toNum(it.order_compl_time);
-            const rate_per_hours = toNum(it.rate_per_hours);
+            const est = findEst(p.process_name, "direct_labor", it.coa, it.item_name);
+            const qty = toNum(it.qty ?? est?.qty ?? 0);
+            const order_compl_time = toNum(it.order_compl_time ?? est?.order_compl_time ?? 0);
+            const rate_per_hours = toNum(it.rate_per_hours ?? est?.rate_per_hours ?? 0);
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
             const total_est_rate = qty * order_compl_time * rate_per_hours;
             total_direct_labor_actual += total_est_rate;
-            return { ...it, qty, order_compl_time, rate_per_hours, total_est_rate };
+            return { ...est, ...it, desc, unit, qty, order_compl_time, rate_per_hours, item_name, total_est_rate };
           });
 
           // indirect_labor_actual
           const indirect_labor_actual = (p.indirect_labor_actual || []).map((it) => {
-            const qty = toNum(it.qty);
-            const order_compl_time = toNum(it.order_compl_time);
-            const rate_per_hours = toNum(it.rate_per_hours);
+            const est = findEst(p.process_name, "indirect_labor", it.coa, it.item_name);
+            const qty = toNum(it.qty ?? est?.qty ?? 0);
+            const order_compl_time = toNum(it.order_compl_time ?? est?.order_compl_time ?? 0);
+            const rate_per_hours = toNum(it.rate_per_hours ?? est?.rate_per_hours ?? 0);
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
             const total_est_rate = qty * order_compl_time * rate_per_hours;
             total_indirect_labor_actual += total_est_rate;
-            return { ...it, qty, order_compl_time, rate_per_hours, total_est_rate };
+            return { ...est, ...it, desc, unit, qty, order_compl_time, rate_per_hours, item_name, total_est_rate };
           });
 
           // utilities_cost_actual
           const utilities_cost_actual = (p.utilities_cost_actual || []).map((it) => {
-            const rate = toNum(it.rate);
-            const est_qty = toNum(it.est_qty);
+            const est = findEst(p.process_name, "utilities_cost", it.coa, it.item_name);
+            const rate = toNum(it.rate ?? est?.rate ?? est?.price ?? 0);
+            const est_qty = toNum(it.est_qty ?? est?.est_qty ?? 0);
+            const price = toNum(it.price ?? est?.price ?? rate);
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
             const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
             total_utilities_cost_actual += total_est_rate;
-            return { ...it, rate, est_qty, total_est_rate };
+            return { ...est, ...it, desc, unit, rate, price, est_qty, item_name, total_est_rate };
           });
 
           // direct_material_actual
           const direct_material_actual = (p.direct_material_actual || []).map((it) => {
-            const qty = toNum(it.qty);
-            const price = toNum(it.price);
+            const est = findEst(p.process_name, "direct_material", it.coa, it.item_name);
+            const qty = toNum(it.qty ?? est?.qty ?? 0);
+            const price = toNum(it.price ?? est?.price ?? 0);
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
             const total = qty * price;
             total_direct_material_actual += total;
-            return { ...it, qty, price, total };
+            return { ...est, ...it, desc, unit, qty, price, item_name, total };
           });
 
           // indirect_material_actual
           const indirect_material_actual = (p.indirect_material_actual || []).map((it) => {
-            const qty = toNum(it.qty);
-            const price = toNum(it.price);
+            const est = findEst(p.process_name, "indirect_material", it.coa, it.item_name);
+            const qty = toNum(it.qty ?? est?.qty ?? 0);
+            const price = toNum(it.price ?? est?.price ?? 0);
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
             const total = qty * price;
             total_indirect_material_actual += total;
-            return { ...it, qty, price, total };
+            return { ...est, ...it, desc, unit, qty, price, item_name, total };
           });
 
           // items_depreciation_actual
           const items_depreciation_actual = (p.items_depreciation_actual || []).map((it) => {
-            const qty = toNum(it.qty);
-            const rate_estimated = toNum(it.rate_estimated);
+            const est = findEst(p.process_name, "items_depreciation", it.coa, it.item_name);
+            const qty = toNum(it.qty ?? est?.qty ?? 0);
+            const rate_estimated = toNum(it.rate_estimated ?? est?.rate_estimated ?? 0);
             const total_est_rate = toNum(it.total_est_rate) || rate_estimated * qty;
             total_items_depreciation_actual += total_est_rate;
-            return { ...it, qty, rate_estimated, total_est_rate };
+            const desc = it.desc ?? est?.desc ?? null;
+            const unit = it.unit ?? est?.unit ?? null;
+            const item_name = it.item_name ?? est?.item_name ?? null;
+            return { ...est, ...it, desc, unit, qty, rate_estimated, item_name, total_est_rate };
           });
 
           return {

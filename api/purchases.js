@@ -6643,7 +6643,7 @@ module.exports = async (req, res) => {
 
           // Hitung total_cogs dengan menjumlahkan semua total_sale di bulan ini
           // Ambil semua data inventory di bulan yang sama untuk item ini
-          const { data: allInMonthForCogs, error: cogsErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", item_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", `${yearMonth}-31`);
+          const { data: allInMonthForCogs, error: cogsErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", item_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", `${yearMonth}-30`);
 
           if (cogsErr) throw new Error("Failed to calculate total_cogs: " + cogsErr.message);
 
