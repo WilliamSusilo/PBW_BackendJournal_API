@@ -6561,7 +6561,7 @@ module.exports = async (req, res) => {
             .select("*")
             .eq("stock_name", item_name)
             .gte("inventory_date", `${yearMonth}-01`)
-            .lte("inventory_date", `${yearMonth}-31`)
+            .lte("inventory_date", `${yearMonth}-30`)
             .order("inventory_date", { ascending: false });
 
           if (countErr) throw new Error("Failed to check existing inventory in month: " + countErr.message);
@@ -6595,7 +6595,7 @@ module.exports = async (req, res) => {
           const discPayment = 0; // Bisa diambil dari invoice.discount_payment jika ada
 
           // Hitung nett_purchase
-          const nettPurchase = qty * price - discPerItem + freightShare * qty + insuranceShare * qty - discPayment;
+          const nettPurchase = (qty - return_unit) * price - discPerItem + freightShare * qty + insuranceShare * qty - discPayment;
 
           // Hitung nett_price_item
           const qtyAfterReturn = qty - (return_unit || 0);
@@ -6661,6 +6661,8 @@ module.exports = async (req, res) => {
             inventory_date: inventoryDate,
             description: descText,
             quantity_purchase: qty,
+            // Stock movement for this inventory record (positive for purchase)
+            stock_movement: Number(qty) || 0,
             price_purchase: price,
             return_purchase: return_unit || 0,
             quantity_sale: quantitySale,
@@ -6670,6 +6672,7 @@ module.exports = async (req, res) => {
             insurance: Math.round(insuranceShare * qty),
             disc_payment: Math.round(discPayment),
             nett_purchase: Math.round(nettPurchase),
+            nett_quantity: Math.round(qtyAfterReturn),
             nett_price_item: Math.round(nettPriceItem),
             price_sale: Math.round(priceSale),
             total_sale: Math.round(totalSale),
@@ -6831,6 +6834,104 @@ module.exports = async (req, res) => {
             lines: lineEntries,
           },
         });
+      }
+
+      // Adjustment Stock Endpoint
+      case "adjustmentStock": {
+        if (method !== "POST") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use POST for adjustmentStock." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        // Expect body: { month: 'YYYY-MM', stock_name: 'Item name', nett_purchase: number }
+        const { month, stock_name, nett_purchase } = req.body;
+
+        if (!month) return res.status(400).json({ error: true, message: "month (YYYY-MM) is required" });
+        if (!stock_name) return res.status(400).json({ error: true, message: "stock_name is required" });
+        if (nett_purchase === undefined || nett_purchase === null) return res.status(400).json({ error: true, message: "nett_purchase is required (can be negative)" });
+
+        const toNum = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
+
+        try {
+          // build date range for the month
+          const startDate = `${month}-01`;
+          const endDate = `${month}-31`;
+
+          // Fetch latest inventory record in that month for the stock_name
+          const { data: latestRec, error: latestErr } = await supabase
+            .from("inventory")
+            .select("*")
+            .eq("stock_name", stock_name)
+            .gte("inventory_date", startDate)
+            .lte("inventory_date", endDate)
+            .order("inventory_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestErr) return res.status(500).json({ error: true, message: "Failed to fetch inventory: " + latestErr.message });
+          if (!latestRec) return res.status(404).json({ error: true, message: `No inventory records found for ${stock_name} in ${month}` });
+
+          const oldTotalQty = toNum(latestRec.total_qty);
+          const oldTotalStock = toNum(latestRec.total_stock);
+          const oldAvgPerUnit = toNum(latestRec.avg_per_unit);
+
+          // Sum total_sale (total_cogs) for the month for this stock
+          const { data: salesInMonth, error: salesErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", stock_name).gte("inventory_date", startDate).lte("inventory_date", endDate);
+
+          if (salesErr) return res.status(500).json({ error: true, message: "Failed to calculate total_cogs: " + salesErr.message });
+
+          const totalCogs = Array.isArray(salesInMonth) ? salesInMonth.reduce((s, r) => s + toNum(r.total_sale), 0) : 0;
+
+          // Apply nett_purchase adjustment
+          const adj = toNum(nett_purchase);
+          const newTotalQty = oldTotalQty; // quantity unchanged by price adjustment
+          const newTotalStock = oldTotalStock + adj;
+          const newAvgPerUnit = newTotalQty > 0 ? newTotalStock / newTotalQty : 0;
+
+          // Build total_nett JSON object to store
+          const totalNett = {
+            month,
+            stock_name,
+            old: {
+              total_qty: oldTotalQty,
+              total_stock: oldTotalStock,
+              avg_per_unit: oldAvgPerUnit,
+            },
+            adjustment: {
+              nett_purchase: adj,
+            },
+            new: {
+              total_qty: newTotalQty,
+              total_stock: newTotalStock,
+              avg_per_unit: newAvgPerUnit,
+            },
+            total_cogs: totalCogs,
+            updated_by: user.id,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update the latest inventory record's total_nett column (jsonb)
+          const { error: updateErr } = await supabase.from("inventory").update({ total_nett: totalNett }).eq("id", latestRec.id);
+
+          if (updateErr) return res.status(500).json({ error: true, message: "Failed to update inventory total_nett: " + updateErr.message });
+
+          return res.status(200).json({ error: false, message: "Stock adjustment applied", data: { total_nett: totalNett } });
+        } catch (err) {
+          console.error("adjustmentStock error:", err);
+          return res.status(500).json({ error: true, message: "Internal server error" });
+        }
       }
 
       // Approval Shipment Endpoint

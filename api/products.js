@@ -1505,6 +1505,78 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data });
       }
 
+      // Get Inventories Endpoint
+      case "getInventories": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getInventories." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Filters: date range (inventory_date) and transaction type (type)
+        const startDate = req.query.startDate; // expected format: YYYY-MM-DD or ISO
+        const endDate = req.query.endDate; // expected format: YYYY-MM-DD or ISO
+        const typeFilter = req.query.type; // e.g. 'purchase', 'sale', 'adjustment'
+
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("inventory").select("*").order("inventory_date", { ascending: false }).range(from, to);
+
+        if (startDate && endDate) {
+          query = query.gte("inventory_date", startDate).lte("inventory_date", endDate);
+        } else if (startDate) {
+          query = query.gte("inventory_date", startDate);
+        } else if (endDate) {
+          query = query.lte("inventory_date", endDate);
+        }
+
+        if (typeFilter) {
+          query = query.eq("type", typeFilter);
+        }
+
+        if (search) {
+          // columns to perform ilike search against
+          const stringColumns = ["product_name", "sku", "type", "warehouse", "remarks"];
+          const numericColumns = ["quantity", "total_cogs"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const eqNumericConditions = [];
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error: fetchError } = await query;
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch inventories: " + fetchError.message });
+        }
+
+        return res.status(200).json({ error: false, data });
+      }
+
       // Get All Products, Warehouses Endpoint
       case "getStocks":
       case "getProducts":
@@ -1872,6 +1944,58 @@ module.exports = async (req, res) => {
         if (updateErr) {
           return res.status(500).json({ error: true, message: "Failed to update production plan: " + updateErr.message });
         }
+        // After successful update, attempt to fetch the updated production_plan and insert a work_in_process
+        try {
+          const { data: updatedPlan, error: fetchUpdatedErr } = await supabase.from("production_plan").select("*").eq("id", id).single();
+
+          if (fetchUpdatedErr || !updatedPlan) {
+            console.error("Failed to fetch updated production_plan after update:", fetchUpdatedErr);
+          } else {
+            // fields required to create work_in_process
+            const requiredFields = ["product_name", "prod_code", "job_order_num", "sku", "total_prod_order", "qty_goods_est", "total_qty_goods_est", "category", "warehouse", "schedule"];
+
+            const allPresent = requiredFields.every((f) => updatedPlan[f] !== null && updatedPlan[f] !== undefined && updatedPlan[f] !== "");
+            const hasProcesses = Array.isArray(updatedPlan.processes) && updatedPlan.processes.length > 0;
+
+            if (allPresent && hasProcesses) {
+              // avoid duplicate insertion for same prod_code & job_order_num
+              const { data: existingWIP, error: existingErr } = await supabase.from("work_in_process").select("id").eq("prod_code", updatedPlan.prod_code).eq("job_order_num", updatedPlan.job_order_num).maybeSingle();
+
+              if (!existingErr && !existingWIP) {
+                const wipPayload = {
+                  user_id: user.id,
+                  product_name: updatedPlan.product_name,
+                  prod_code: updatedPlan.prod_code,
+                  job_order_num: updatedPlan.job_order_num,
+                  sku: updatedPlan.sku,
+                  total_prod_order: Number(updatedPlan.total_prod_order) || 0,
+                  qty_goods_est: Number(updatedPlan.qty_goods_est) || 0,
+                  total_qty_goods_est: Number(updatedPlan.total_qty_goods_est) || 0,
+                  category: updatedPlan.category,
+                  warehouse: updatedPlan.warehouse,
+                  schedule: updatedPlan.schedule,
+                  processes: updatedPlan.processes,
+                  total_direct_material: round2(updatedPlan.total_direct_material || 0),
+                  total_direct_labor: round2(updatedPlan.total_direct_labor || 0),
+                  total_indirect_material: round2(updatedPlan.total_indirect_material || 0),
+                  total_indirect_labor: round2(updatedPlan.total_indirect_labor || 0),
+                  total_items_depreciation: round2(updatedPlan.total_items_depreciation || 0),
+                  total_utilities_cost: round2(updatedPlan.total_utilities_cost || 0),
+                  total_other_foc: round2(updatedPlan.total_other_foc || 0),
+                  total_foc_est: round2(updatedPlan.total_foc_est || 0),
+                  total_cogm_est: round2(updatedPlan.total_cogm_est || 0),
+                  cogm_unit_est: round2(updatedPlan.cogm_unit_est || 0),
+                  created_at: new Date().toISOString(),
+                };
+
+                const { error: insertWipErr } = await supabase.from("work_in_process").insert([wipPayload]);
+                if (insertWipErr) console.error("Failed to insert work_in_process:", insertWipErr.message);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error while handling work_in_process insertion:", err);
+        }
 
         // Build response message and include info about any auto-created warehouses
         let responseMessage = "Production plan updated successfully";
@@ -1898,6 +2022,171 @@ module.exports = async (req, res) => {
             cogm_unit_est: round2(cogm_unit_est),
           },
         });
+      }
+
+      // Edit Work In Process Endpoint (actuals)
+      case "editWorkInProcess": {
+        if (method !== "PUT") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editWorkInProcess." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+        const { id, processesActual = [], coa_finished_goods, coa_defective_goods, coa_expenses, total_finished_goods, total_defective_goods, total_expenses } = req.body;
+
+        if (!id) return res.status(400).json({ error: true, message: "work_in_process id is required" });
+
+        const toNum = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
+
+        // Fetch existing work_in_process
+        const { data: existingWIP, error: fetchWipErr } = await supabase.from("work_in_process").select("*").eq("id", id).single();
+        if (fetchWipErr || !existingWIP) return res.status(404).json({ error: true, message: "Work in process not found" });
+
+        // Aggregate actual totals
+        let total_other_foc_actual = 0;
+        let total_direct_labor_actual = 0;
+        let total_indirect_labor_actual = 0;
+        let total_utilities_cost_actual = 0;
+        let total_direct_material_actual = 0;
+        let total_indirect_material_actual = 0;
+        let total_items_depreciation_actual = 0;
+
+        const processedActuals = (Array.isArray(processesActual) ? processesActual : []).map((p) => {
+          // other_foc_actual
+          const other_foc_actual = (p.other_foc_actual || []).map((it) => {
+            const rate = toNum(it.rate);
+            const est_qty = toNum(it.est_qty);
+            const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
+            total_other_foc_actual += total_est_rate;
+            return { ...it, rate, est_qty, total_est_rate };
+          });
+
+          // direct_labor_actual
+          const direct_labor_actual = (p.direct_labor_actual || []).map((it) => {
+            const qty = toNum(it.qty);
+            const order_compl_time = toNum(it.order_compl_time);
+            const rate_per_hours = toNum(it.rate_per_hours);
+            const total_est_rate = qty * order_compl_time * rate_per_hours;
+            total_direct_labor_actual += total_est_rate;
+            return { ...it, qty, order_compl_time, rate_per_hours, total_est_rate };
+          });
+
+          // indirect_labor_actual
+          const indirect_labor_actual = (p.indirect_labor_actual || []).map((it) => {
+            const qty = toNum(it.qty);
+            const order_compl_time = toNum(it.order_compl_time);
+            const rate_per_hours = toNum(it.rate_per_hours);
+            const total_est_rate = qty * order_compl_time * rate_per_hours;
+            total_indirect_labor_actual += total_est_rate;
+            return { ...it, qty, order_compl_time, rate_per_hours, total_est_rate };
+          });
+
+          // utilities_cost_actual
+          const utilities_cost_actual = (p.utilities_cost_actual || []).map((it) => {
+            const rate = toNum(it.rate);
+            const est_qty = toNum(it.est_qty);
+            const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
+            total_utilities_cost_actual += total_est_rate;
+            return { ...it, rate, est_qty, total_est_rate };
+          });
+
+          // direct_material_actual
+          const direct_material_actual = (p.direct_material_actual || []).map((it) => {
+            const qty = toNum(it.qty);
+            const price = toNum(it.price);
+            const total = qty * price;
+            total_direct_material_actual += total;
+            return { ...it, qty, price, total };
+          });
+
+          // indirect_material_actual
+          const indirect_material_actual = (p.indirect_material_actual || []).map((it) => {
+            const qty = toNum(it.qty);
+            const price = toNum(it.price);
+            const total = qty * price;
+            total_indirect_material_actual += total;
+            return { ...it, qty, price, total };
+          });
+
+          // items_depreciation_actual
+          const items_depreciation_actual = (p.items_depreciation_actual || []).map((it) => {
+            const qty = toNum(it.qty);
+            const rate_estimated = toNum(it.rate_estimated);
+            const total_est_rate = toNum(it.total_est_rate) || rate_estimated * qty;
+            total_items_depreciation_actual += total_est_rate;
+            return { ...it, qty, rate_estimated, total_est_rate };
+          });
+
+          return {
+            process_name: p.process_name,
+            other_foc_actual,
+            direct_labor_actual,
+            indirect_labor_actual,
+            utilities_cost_actual,
+            direct_material_actual,
+            indirect_material_actual,
+            items_depreciation_actual,
+          };
+        });
+
+        // Compute higher-level aggregates
+        const total_foc_actual = total_indirect_material_actual + total_indirect_labor_actual + total_items_depreciation_actual + total_utilities_cost_actual + total_other_foc_actual;
+        const total_cogm_actual = total_foc_actual + total_direct_material_actual + total_direct_labor_actual;
+
+        const t_finished = toNum(total_finished_goods);
+        const t_defective = toNum(total_defective_goods);
+        const t_expenses = toNum(total_expenses);
+
+        const denomForLoss = t_finished + t_defective + t_expenses;
+        const prod_loss = denomForLoss > 0 ? t_expenses * (total_cogm_actual / denomForLoss) : 0;
+
+        const nett_total_cogm = total_cogm_actual - prod_loss;
+        const denomForUnit = t_finished + t_defective;
+        const cogm_per_unit_actual = denomForUnit > 0 ? nett_total_cogm / denomForUnit : 0;
+
+        const total_cogm_est_existing = toNum(existingWIP.total_cogm_est || existingWIP.total_cogm_estimate || 0);
+        const cost_variance = total_cogm_actual - total_cogm_est_existing;
+
+        // Prepare update payload
+        const updatePayload = {
+          processes_actual: processedActuals,
+          coa_finished_goods: coa_finished_goods ?? existingWIP.coa_finished_goods,
+          coa_defective_goods: coa_defective_goods ?? existingWIP.coa_defective_goods,
+          coa_expenses: coa_expenses ?? existingWIP.coa_expenses,
+          total_finished_goods: t_finished,
+          total_defective_goods: t_defective,
+          total_expenses: t_expenses,
+          total_other_foc_actual: round2(total_other_foc_actual),
+          total_direct_labor_actual: round2(total_direct_labor_actual),
+          total_indirect_labor_actual: round2(total_indirect_labor_actual),
+          total_utilities_cost_actual: round2(total_utilities_cost_actual),
+          total_direct_material_actual: round2(total_direct_material_actual),
+          total_indirect_material_actual: round2(total_indirect_material_actual),
+          total_items_depreciation_actual: round2(total_items_depreciation_actual),
+          total_foc_actual: round2(total_foc_actual),
+          total_cogm_actual: round2(total_cogm_actual),
+          prod_loss: round2(prod_loss),
+          nett_total_cogm: round2(nett_total_cogm),
+          cogm_per_unit_actual: round2(cogm_per_unit_actual),
+          cost_variance: round2(cost_variance),
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: updateErr } = await supabase.from("work_in_process").update(updatePayload).eq("id", id);
+        if (updateErr) return res.status(500).json({ error: true, message: "Failed to update work_in_process: " + updateErr.message });
+
+        return res.status(200).json({ error: false, message: "Work in process updated with actuals", data: updatePayload });
       }
 
       default:
