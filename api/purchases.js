@@ -6894,13 +6894,31 @@ module.exports = async (req, res) => {
           });
         }
 
+        // Check billing_order for any down-payments (same invoice number)
+        let billOrderAmount = 0;
+        try {
+          const { data: ordersWithSameNumber, error: ordersErr } = await supabase.from("billing_order").select("paid_amount").eq("number", invoice.number);
+
+          if (!ordersErr && Array.isArray(ordersWithSameNumber) && ordersWithSameNumber.length > 0) {
+            billOrderAmount = ordersWithSameNumber.reduce((sum, r) => sum + (Number(r.paid_amount) || 0), 0);
+          }
+        } catch (e) {
+          console.error("Error checking billing_order for same number:", e.message || e);
+          billOrderAmount = 0;
+        }
+
+        // Adjust grand_total to subtract bill_order_amount (if any)
+        const originalGrand = Number(invoice.grand_total || 0);
+        const adjustedGrand = Math.round(originalGrand - billOrderAmount);
+
         const { error } = await supabase.from("billing_invoice").insert([
           {
             user_id: user.id,
             vendor_name: invoice.vendor_name,
             invoice_date: invoice.date,
             terms: invoice.terms,
-            grand_total: invoice.grand_total,
+            // store the grand_total after deducting any billing_order paid amounts
+            grand_total: adjustedGrand,
             items: invoice.items,
             type: "Billing Invoice",
             number: invoice.number,
@@ -6914,6 +6932,8 @@ module.exports = async (req, res) => {
             ppn_percentage: invoice.ppn_percentage,
             pph_percentage: invoice.pph_percentage,
             total: invoice.total,
+            // store bill order aggregated paid amount
+            bill_order_amount: billOrderAmount,
           },
         ]);
 
