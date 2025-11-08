@@ -277,22 +277,50 @@ module.exports = async (req, res) => {
           let dpp = 0;
           let ppn = 0;
 
-          // Logika perhitungan sesuai kondisi tax_method
+          // Logika perhitungan sesuai kondisi tax_method dengan aturan special untuk ppn_percentage 11 atau 12
+          const ppnPct = Number(ppn_percentage) || 0;
+          let paid_amount = 0;
+
           if (tax_method === "Before Calculate") {
-            dpp = (11 / 12) * installment_amount;
-            ppn = Math.round(ppnRate * dpp);
+            if (ppnPct === 11) {
+              // If ppn_percentage = 11, treat installment_amount as DPP
+              dpp = Number(installment_amount) || 0;
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(dpp - ppn);
+            } else if (ppnPct === 12) {
+              // If ppn_percentage = 12, use 11/12 * installment as DPP
+              dpp = (11 / 12) * Number(installment_amount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(Number(installment_amount || 0) - ppn);
+            } else {
+              // Fallback: original behaviour (approximate)
+              dpp = (11 / 12) * Number(installment_amount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(Number(installment_amount || 0) + ppn);
+            }
           } else if (tax_method === "After Calculate") {
-            dpp = installment_amount / (1 + ppnRate);
-            ppn = Math.round(ppnRate * dpp);
+            if (ppnPct === 11) {
+              // If ppn_percentage = 11, compute DPP by dividing by (1+ppnRate)
+              dpp = Number(installment_amount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(dpp - ppn);
+            } else if (ppnPct === 12) {
+              // If ppn_percentage = 12, use 11/12 * installment as DPP
+              dpp = (11 / 12) * Number(installment_amount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(Number(installment_amount || 0) - ppn);
+            } else {
+              // Fallback to previous After Calculate behaviour
+              dpp = Number(installment_amount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              paid_amount = Math.round(Number(installment_amount || 0) + ppn);
+            }
           } else {
             return res.status(400).json({
               error: true,
               message: `Unknown tax method: ${tax_method}`,
             });
           }
-
-          // Hitung total yang dibayar (DP atau cicilan)
-          const paid_amount = Math.round(Number(installment_amount) + ppn);
 
           // Make journal entry
           const { data: journal, error: journalError } = await supabase
@@ -2343,7 +2371,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, vendor_name, order_date, number, type, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, status, ppn, filesToDelete } = req.body;
+          const { id, vendor_name, order_date, number, type, dpp, ppn, ppn_percentage, paid_amount, memo, items: itemsRaw, installment_amount, installment_COA, payment_COA, installment_name, payment_name, status, filesToDelete } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2447,6 +2475,10 @@ module.exports = async (req, res) => {
             installment_name,
             payment_name,
             status,
+            dpp,
+            ppn,
+            ppn_percentage,
+            paid_amount,
             attachment_url: newAttachmentUrls || null,
             updated_at: new Date().toISOString(),
           };
@@ -6031,15 +6063,43 @@ module.exports = async (req, res) => {
         }
 
         const ppnRate = Number(billing.ppn_percentage) / 100;
+        const ppnPct = Number(billing.ppn_percentage) || 0;
 
+        // Apply special PPN rules for 11% / 12% consistency with Billing Order logic
         if (billing.tax_method === "Before Calculate") {
-          dpp = (11 / 12) * billing.total;
-          ppn = Math.round(ppnRate * dpp);
-          pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          if (ppnPct === 11) {
+            // Treat total as DPP when ppn_percentage === 11
+            dpp = Number(billing.total) || 0;
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else if (ppnPct === 12) {
+            // Use 11/12 * total as DPP when ppn_percentage === 12
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else {
+            // Fallback/legacy behaviour
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          }
         } else if (billing.tax_method === "After Calculate") {
-          dpp = billing.total / (1 + ppnRate);
-          ppn = Math.round(ppnRate * dpp);
-          pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          if (ppnPct === 11) {
+            // Compute DPP by dividing by (1 + ppnRate) when 11%
+            dpp = Number(billing.total || 0) / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else if (ppnPct === 12) {
+            // Use 11/12 * total as DPP when ppn_percentage === 12
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else {
+            // Fallback behaviour
+            dpp = Number(billing.total || 0) / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          }
         }
 
         // ====== Journal Entries: Full Payment ======
@@ -6101,13 +6161,33 @@ module.exports = async (req, res) => {
           const partialAmount = paid_amount || 0;
 
           if (billing.tax_method === "Before Calculate") {
-            dpp = (11 / 12) * partialAmount;
-            ppn = Math.round(ppnRate * dpp);
-            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            if (ppnPct === 11) {
+              dpp = Number(partialAmount) || 0;
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else if (ppnPct === 12) {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            }
           } else if (billing.tax_method === "After Calculate") {
-            dpp = partialAmount / (1 + ppnRate);
-            ppn = Math.round(ppnRate * dpp);
-            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            if (ppnPct === 11) {
+              dpp = Number(partialAmount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else if (ppnPct === 12) {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else {
+              dpp = Number(partialAmount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            }
           }
 
           if (partialAmount > 0) {
@@ -6390,6 +6470,40 @@ module.exports = async (req, res) => {
           });
         }
 
+        // Jika ada billing_invoice yang terkait dengan nomor ini, catat pembayaran (down payment)
+        try {
+          const { data: relatedBillingInv, error: relatedBillingErr } = await supabase.from("billing_invoice").select("*").eq("number", billingOrder.number).maybeSingle();
+
+          if (!relatedBillingErr && relatedBillingInv) {
+            // Tentukan nilai yang dibayarkan untuk billing order ini
+            let paidAmount = Number(billingOrder.paid_amount || 0);
+            // Jika paid_amount tidak tersimpan, coba hitung dari installment_amount + ppn (jika tersedia)
+            if (!paidAmount || paidAmount === 0) {
+              const installment = Number(billingOrder.installment_amount || 0);
+              const ppn = Number(billingOrder.ppn || 0);
+              if (installment > 0) paidAmount = installment + ppn;
+            }
+
+            // Ambil payment_amount yang sudah ada (disimpan sebagai array JSON), lalu tambahkan entry baru
+            const existingPayments = Array.isArray(relatedBillingInv.payment_amount) ? [...relatedBillingInv.payment_amount] : [];
+            existingPayments.push({ billing_order_id: billingOrder.id, amount: Math.round(paidAmount), date: new Date().toISOString() });
+
+            const totalPaid = existingPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+            const grandTotal = Number(relatedBillingInv.grand_total || 0);
+            const newRemain = Math.max(0, Math.round(grandTotal - totalPaid));
+
+            const newStatus = newRemain <= 0 ? "Completed" : totalPaid > 0 ? "Pending" : relatedBillingInv.status || "Unpaid";
+
+            const { error: updateBillingInvErr } = await supabase.from("billing_invoice").update({ payment_amount: existingPayments, remain_balance: newRemain, status: newStatus }).eq("id", relatedBillingInv.id);
+
+            if (updateBillingInvErr) {
+              console.error("Failed to update related billing_invoice with down payment:", updateBillingInvErr.message);
+            }
+          }
+        } catch (e) {
+          console.error("Error while applying billing order payment to billing_invoice:", e.message || e);
+        }
+
         const { error: logErr } = await supabase.from("activity_logs").insert([
           {
             user_id: user.id,
@@ -6553,6 +6667,10 @@ module.exports = async (req, res) => {
           // === INVENTORY MANAGEMENT: AVERAGE DOWN METHOD ===
           const inventoryDate = invoice.date; // Gunakan date dari invoice, bukan tanggal hari ini
           const yearMonth = inventoryDate.slice(0, 7); // Format: YYYY-MM
+          // Hitung last day of month dinamically (30 atau 31, atau 28/29 Februari)
+          const [__y, __m] = yearMonth.split("-");
+          const endDay = new Date(Number(__y), Number(__m), 0).getDate();
+          const endOfMonth = `${yearMonth}-${String(endDay).padStart(2, "0")}`;
           const randomNum = Math.floor(100000 + Math.random() * 900000);
 
           // Cek apakah sudah ada data inventory di bulan dan tahun yang sama untuk item ini
@@ -6561,7 +6679,7 @@ module.exports = async (req, res) => {
             .select("*")
             .eq("stock_name", item_name)
             .gte("inventory_date", `${yearMonth}-01`)
-            .lte("inventory_date", `${yearMonth}-30`)
+            .lte("inventory_date", endOfMonth)
             .order("inventory_date", { ascending: false });
 
           if (countErr) throw new Error("Failed to check existing inventory in month: " + countErr.message);
@@ -6643,7 +6761,7 @@ module.exports = async (req, res) => {
 
           // Hitung total_cogs dengan menjumlahkan semua total_sale di bulan ini
           // Ambil semua data inventory di bulan yang sama untuk item ini
-          const { data: allInMonthForCogs, error: cogsErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", item_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", `${yearMonth}-30`);
+          const { data: allInMonthForCogs, error: cogsErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", item_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", endOfMonth);
 
           if (cogsErr) throw new Error("Failed to calculate total_cogs: " + cogsErr.message);
 
@@ -7226,23 +7344,6 @@ module.exports = async (req, res) => {
         }
 
         if (request.installment_amount !== null && request.installment_amount !== 0) {
-          let dpp = 0;
-          let ppn = 0;
-
-          const grandTotal = Number(request.grand_total) || 0;
-          const ppnRate = Number(request.ppn_percentage) / 100;
-
-          if (request.tax_method === "Before Calculate") {
-            dpp = (11 / 12) * request.installment_amount;
-            ppn = Math.round(ppnRate * dpp);
-          } else if (request.tax_method === "After Calculate") {
-            dpp = request.installment_amount / (1 + ppnRate);
-            ppn = Math.round(ppnRate * dpp);
-          }
-
-          // Hitung total yang dibayar (DP atau cicilan)
-          const paid_amount = Math.round(Number(request.installment_amount) + ppn);
-
           const { error } = await supabase.from("billing_order").insert([
             {
               user_id: user.id,
@@ -7252,8 +7353,6 @@ module.exports = async (req, res) => {
               type: "Billing Order",
               items: request.items,
               installment_amount: request.installment_amount,
-              ppn,
-              paid_amount,
               grand_total: request.grand_total,
               status: "Pending",
             },

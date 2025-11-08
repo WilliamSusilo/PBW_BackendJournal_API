@@ -1798,10 +1798,14 @@ module.exports = async (req, res) => {
         let agg_total_utilities_cost = 0;
         let agg_total_other_foc = 0;
 
+        // Determine previous multiplier (if this plan was already scaled before)
+        const prevProdOrder = toNum(existingPlan.total_prod_order) || 1;
+
         const updatedProcesses = existingProcesses.map((p) => {
           const direct_material = (p.direct_material || []).map((it) => {
-            const baseQty = toNum(it.qty);
-            const newQty = baseQty * toNum(total_prod_order);
+            // compute base per-unit qty by undoing previous scaling (if any)
+            const baseQtyPerUnit = prevProdOrder ? toNum(it.qty) / prevProdOrder : toNum(it.qty);
+            const newQty = baseQtyPerUnit * toNum(total_prod_order);
             const price = toNum(it.price);
             const total = newQty * price;
             agg_total_direct_material += total;
@@ -1815,8 +1819,9 @@ module.exports = async (req, res) => {
 
           const direct_labor = (p.direct_labor || []).map((it) => {
             const qty = toNum(it.qty);
-            const baseOrder = toNum(it.order_compl_time);
-            const newOrder = baseOrder * toNum(total_prod_order);
+            // undo previous scaling on order_compl_time
+            const baseOrderPerUnit = prevProdOrder ? toNum(it.order_compl_time) / prevProdOrder : toNum(it.order_compl_time);
+            const newOrder = baseOrderPerUnit * toNum(total_prod_order);
             const rate_per_hours = toNum(it.rate_per_hours);
             const total_est_rate = qty * newOrder * rate_per_hours;
             agg_total_direct_labor += total_est_rate;
@@ -1829,8 +1834,8 @@ module.exports = async (req, res) => {
           });
 
           const indirect_material = (p.indirect_material || []).map((it) => {
-            const baseQty = toNum(it.qty);
-            const newQty = baseQty * toNum(total_prod_order);
+            const baseQtyPerUnit = prevProdOrder ? toNum(it.qty) / prevProdOrder : toNum(it.qty);
+            const newQty = baseQtyPerUnit * toNum(total_prod_order);
             const price = toNum(it.price);
             const total = newQty * price;
             agg_total_indirect_material += total;
@@ -1844,8 +1849,8 @@ module.exports = async (req, res) => {
 
           const indirect_labor = (p.indirect_labor || []).map((it) => {
             const qty = toNum(it.qty);
-            const baseOrder = toNum(it.order_compl_time);
-            const newOrder = baseOrder * toNum(total_prod_order);
+            const baseOrderPerUnit = prevProdOrder ? toNum(it.order_compl_time) / prevProdOrder : toNum(it.order_compl_time);
+            const newOrder = baseOrderPerUnit * toNum(total_prod_order);
             const rate_per_hours = toNum(it.rate_per_hours);
             const total_est_rate = qty * newOrder * rate_per_hours;
             agg_total_indirect_labor += total_est_rate;
@@ -1858,19 +1863,27 @@ module.exports = async (req, res) => {
           });
 
           const items_depreciation = (p.items_depreciation || []).map((it) => {
-            const rate_estimated = toNum(it.rate_estimated);
-            const total_est_rate = toNum(total_prod_order) * rate_estimated;
+            // Prefer using stored total_est_rate (if present) to derive base per-unit value.
+            const storedTotal = toNum(it.total_est_rate) || 0;
+            let baseRateEstimatedPerUnit = 0;
+            if (storedTotal && prevProdOrder) {
+              baseRateEstimatedPerUnit = storedTotal / prevProdOrder;
+            } else {
+              baseRateEstimatedPerUnit = toNum(it.rate_estimated) || storedTotal || 0;
+            }
+            const total_est_rate = baseRateEstimatedPerUnit * toNum(total_prod_order);
             agg_total_items_depreciation += total_est_rate;
             return {
               ...it,
-              rate_estimated,
+              // store the per-unit rate_estimated (keeps consistency)
+              rate_estimated: baseRateEstimatedPerUnit,
               total_est_rate,
             };
           });
 
           const utilities_cost = (p.utilities_cost || []).map((it) => {
-            const baseEst = toNum(it.est_qty);
-            const newEst = baseEst * toNum(total_prod_order);
+            const baseEstPerUnit = prevProdOrder ? toNum(it.est_qty) / prevProdOrder : toNum(it.est_qty);
+            const newEst = baseEstPerUnit * toNum(total_prod_order);
             const rate = toNum(it.price);
             const total_est_rate = newEst * rate;
             agg_total_utilities_cost += total_est_rate;
@@ -1883,8 +1896,8 @@ module.exports = async (req, res) => {
           });
 
           const other_foc = (p.other_foc || []).map((it) => {
-            const baseEst = toNum(it.est_qty);
-            const newEst = baseEst * toNum(total_prod_order);
+            const baseEstPerUnit = prevProdOrder ? toNum(it.est_qty) / prevProdOrder : toNum(it.est_qty);
+            const newEst = baseEstPerUnit * toNum(total_prod_order);
             const rate = toNum(it.price);
             const total_est_rate = newEst * rate;
             agg_total_other_foc += total_est_rate;
@@ -1944,57 +1957,124 @@ module.exports = async (req, res) => {
         if (updateErr) {
           return res.status(500).json({ error: true, message: "Failed to update production plan: " + updateErr.message });
         }
-        // After successful update, attempt to fetch the updated production_plan and insert a work_in_process
+
+        // If all required fields are present after update, insert into work_in_process
         try {
-          const { data: updatedPlan, error: fetchUpdatedErr } = await supabase.from("production_plan").select("*").eq("id", id).single();
+          // Determine final values (use request overrides if provided)
+          const finalProductName = existingPlan.product_name ?? null;
+          const finalProdCode = prod_code ?? existingPlan.prod_code ?? null;
+          const finalJobOrderNum = job_order_num ?? existingPlan.job_order_num ?? null;
+          const finalSku = existingPlan.sku ?? null;
+          const finalTotalProdOrder = toNum(total_prod_order);
+          const finalQtyGoodsEst = toNum(existingPlan.qty_goods_est);
+          const finalTotalQtyGoodsEst = toNum(total_qty_goods_est);
+          const finalCategory = existingPlan.category ?? null;
+          const finalWarehouse = warehouse ?? existingPlan.warehouse ?? null;
+          const finalSchedule = schedule ?? existingPlan.schedule ?? null;
 
-          if (fetchUpdatedErr || !updatedPlan) {
-            console.error("Failed to fetch updated production_plan after update:", fetchUpdatedErr);
-          } else {
-            // fields required to create work_in_process
-            const requiredFields = ["product_name", "prod_code", "job_order_num", "sku", "total_prod_order", "qty_goods_est", "total_qty_goods_est", "category", "warehouse", "schedule"];
+          const allPresent = [
+            finalProductName,
+            finalProdCode,
+            finalJobOrderNum,
+            finalSku,
+            // total_prod_order may be 0 but must be present (we already validated it's provided)
+            typeof finalTotalProdOrder === "number",
+            typeof finalQtyGoodsEst === "number",
+            typeof finalTotalQtyGoodsEst === "number",
+            finalCategory,
+            finalWarehouse,
+            finalSchedule,
+          ].every((v) => v !== null && v !== undefined && v !== "");
 
-            const allPresent = requiredFields.every((f) => updatedPlan[f] !== null && updatedPlan[f] !== undefined && updatedPlan[f] !== "");
-            const hasProcesses = Array.isArray(updatedPlan.processes) && updatedPlan.processes.length > 0;
+          if (allPresent) {
+            // Prepare work_in_process record
+            const wipRecord = {
+              user_id: user.id,
+              product_name: finalProductName,
+              prod_code: finalProdCode,
+              job_order_num: finalJobOrderNum,
+              sku: finalSku,
+              total_prod_order: finalTotalProdOrder,
+              qty_goods_est: finalQtyGoodsEst,
+              total_qty_goods_est: round2(finalTotalQtyGoodsEst),
+              total_direct_material: round2(agg_total_direct_material),
+              total_direct_labor: round2(agg_total_direct_labor),
+              total_indirect_material: round2(agg_total_indirect_material),
+              total_indirect_labor: round2(agg_total_indirect_labor),
+              total_items_depreciation: round2(agg_total_items_depreciation),
+              total_utilities_cost: round2(agg_total_utilities_cost),
+              total_other_foc: round2(agg_total_other_foc),
+              category: finalCategory,
+              warehouse: finalWarehouse,
+              schedule: finalSchedule,
+              processes: updatedProcesses, // use recalculated processes
+              total_foc_est: round2(total_foc_est),
+              total_cogm_est: round2(total_cogm_est),
+              cogm_unit_est: round2(cogm_unit_est),
+              created_at: new Date().toISOString(),
+            };
 
-            if (allPresent && hasProcesses) {
-              // avoid duplicate insertion for same prod_code & job_order_num
-              const { data: existingWIP, error: existingErr } = await supabase.from("work_in_process").select("id").eq("prod_code", updatedPlan.prod_code).eq("job_order_num", updatedPlan.job_order_num).maybeSingle();
+            // Check if a WIP record already exists for this production plan (match by prod_code/job_order_num/sku and user_id)
+            let existingWipRecord = null;
+            try {
+              // Prefer matching by prod_code + user
+              if (finalProdCode) {
+                const { data: found, error: fErr } = await supabase.from("work_in_process").select("*").eq("prod_code", finalProdCode).maybeSingle();
+                if (!fErr && found) existingWipRecord = found;
+              }
 
-              if (!existingErr && !existingWIP) {
-                const wipPayload = {
-                  user_id: user.id,
-                  product_name: updatedPlan.product_name,
-                  prod_code: updatedPlan.prod_code,
-                  job_order_num: updatedPlan.job_order_num,
-                  sku: updatedPlan.sku,
-                  total_prod_order: Number(updatedPlan.total_prod_order) || 0,
-                  qty_goods_est: Number(updatedPlan.qty_goods_est) || 0,
-                  total_qty_goods_est: Number(updatedPlan.total_qty_goods_est) || 0,
-                  category: updatedPlan.category,
-                  warehouse: updatedPlan.warehouse,
-                  schedule: updatedPlan.schedule,
-                  processes: updatedPlan.processes,
-                  total_direct_material: round2(updatedPlan.total_direct_material || 0),
-                  total_direct_labor: round2(updatedPlan.total_direct_labor || 0),
-                  total_indirect_material: round2(updatedPlan.total_indirect_material || 0),
-                  total_indirect_labor: round2(updatedPlan.total_indirect_labor || 0),
-                  total_items_depreciation: round2(updatedPlan.total_items_depreciation || 0),
-                  total_utilities_cost: round2(updatedPlan.total_utilities_cost || 0),
-                  total_other_foc: round2(updatedPlan.total_other_foc || 0),
-                  total_foc_est: round2(updatedPlan.total_foc_est || 0),
-                  total_cogm_est: round2(updatedPlan.total_cogm_est || 0),
-                  cogm_unit_est: round2(updatedPlan.cogm_unit_est || 0),
-                  created_at: new Date().toISOString(),
-                };
+              // If not found and job_order_num present, try matching by job_order_num
+              if (!existingWipRecord && finalJobOrderNum) {
+                const { data: found2, error: f2Err } = await supabase.from("work_in_process").select("*").eq("job_order_num", finalJobOrderNum).maybeSingle();
+                if (!f2Err && found2) existingWipRecord = found2;
+              }
+            } catch (wipFetchErr) {
+              console.error("Failed to lookup existing work_in_process:", wipFetchErr);
+            }
 
-                const { error: insertWipErr } = await supabase.from("work_in_process").insert([wipPayload]);
-                if (insertWipErr) console.error("Failed to insert work_in_process:", insertWipErr.message);
+            if (existingWipRecord && existingWipRecord.id) {
+              // Update existing WIP record instead of inserting a new one
+              const updatePayload = {
+                product_name: finalProductName,
+                prod_code: finalProdCode,
+                job_order_num: finalJobOrderNum,
+                sku: finalSku,
+                total_prod_order: finalTotalProdOrder,
+                qty_goods_est: finalQtyGoodsEst,
+                total_qty_goods_est: round2(finalTotalQtyGoodsEst),
+                total_direct_material: round2(agg_total_direct_material),
+                total_direct_labor: round2(agg_total_direct_labor),
+                total_indirect_material: round2(agg_total_indirect_material),
+                total_indirect_labor: round2(agg_total_indirect_labor),
+                total_items_depreciation: round2(agg_total_items_depreciation),
+                total_utilities_cost: round2(agg_total_utilities_cost),
+                total_other_foc: round2(agg_total_other_foc),
+                category: finalCategory,
+                warehouse: finalWarehouse,
+                schedule: finalSchedule,
+                processes: updatedProcesses, // use recalculated processes
+                total_foc_est: round2(total_foc_est),
+                total_cogm_est: round2(total_cogm_est),
+                cogm_unit_est: round2(cogm_unit_est),
+                updated_at: new Date().toISOString(),
+              };
+
+              const { error: updateWipErr } = await supabase.from("work_in_process").update(updatePayload).eq("id", existingWipRecord.id);
+              if (updateWipErr) {
+                return res.status(500).json({ error: true, message: "Failed to update existing work_in_process: " + updateWipErr.message });
+              }
+            } else {
+              // Insert new WIP record
+              const { error: insertWipErr } = await supabase.from("work_in_process").insert([wipRecord]);
+              if (insertWipErr) {
+                // If insertion fails, return error so caller knows WIP wasn't saved
+                return res.status(500).json({ error: true, message: "Failed to insert work_in_process: " + insertWipErr.message });
               }
             }
           }
-        } catch (err) {
-          console.error("Error while handling work_in_process insertion:", err);
+        } catch (wipErr) {
+          console.error("Error while inserting work_in_process:", wipErr);
+          return res.status(500).json({ error: true, message: "Internal error while creating work_in_process" });
         }
 
         // Build response message and include info about any auto-created warehouses
@@ -2024,7 +2104,7 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Edit Work In Process Endpoint (actuals)
+      // Edit Work In Process Endpoint
       case "editWorkInProcess": {
         if (method !== "PUT") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use PUT for editWorkInProcess." });
@@ -2043,17 +2123,41 @@ module.exports = async (req, res) => {
 
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
-        const { id, processesActual = [], coa_finished_goods, coa_defective_goods, coa_expenses, total_finished_goods, total_defective_goods, total_expenses } = req.body;
+        // Expected body:
+        // {
+        //   id: <work_in_process id>,
+        //   actuals: { [process_name]: { other_foc_actual: [{rate, est_qty}, ...], direct_labor_actual: [{qty, rate_per_hours, order_compl_time}, ...], ... } },
+        //   coa_finished_goods, coa_defective_goods, coa_expenses,
+        //   total_finished_goods, total_defective_goods, total_expenses
+        // }
+
+        const { id, processes_actual = [], coa_finished_goods, coa_defective_goods, coa_expenses, total_finished_goods, total_defective_goods, total_expenses } = req.body;
+        // allow backward-compatible 'actuals' object, but prefer mapping from processes_actual array when provided
+        let actuals = req.body.actuals || {};
 
         if (!id) return res.status(400).json({ error: true, message: "work_in_process id is required" });
 
         const toNum = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
 
-        // Fetch existing work_in_process
-        const { data: existingWIP, error: fetchWipErr } = await supabase.from("work_in_process").select("*").eq("id", id).single();
-        if (fetchWipErr || !existingWIP) return res.status(404).json({ error: true, message: "Work in process not found" });
+        // Fetch existing WIP
+        const { data: existingWip, error: fetchErr } = await supabase.from("work_in_process").select("*").eq("id", id).single();
+        if (fetchErr || !existingWip) return res.status(404).json({ error: true, message: "Work In Process not found" });
 
-        // Aggregate actual totals
+        const existingProcesses = Array.isArray(existingWip.processes) ? existingWip.processes : [];
+
+        // If client sent processes_actual as an array, map it to process_name keys by index
+        // Fallback: if fewer items provided, use the first element for remaining originals
+        if (Array.isArray(processes_actual) && processes_actual.length > 0) {
+          const mapped = {};
+          for (let i = 0; i < existingProcesses.length; i++) {
+            const pname = existingProcesses[i] && existingProcesses[i].process_name ? existingProcesses[i].process_name : `process_${i}`;
+            mapped[pname] = processes_actual[i] || processes_actual[0] || {};
+          }
+          // Merge with any explicitly provided actuals (explicit keys win)
+          actuals = { ...mapped, ...actuals };
+        }
+
+        // Totals accumulators
         let total_other_foc_actual = 0;
         let total_direct_labor_actual = 0;
         let total_indirect_labor_actual = 0;
@@ -2062,170 +2166,235 @@ module.exports = async (req, res) => {
         let total_indirect_material_actual = 0;
         let total_items_depreciation_actual = 0;
 
-        // helper: find estimated item from existing plan by process and array name
-        const findEst = (procName, arrName, coa, itemName) => {
-          if (!Array.isArray(existingWIP.processes)) return null;
-          const estProc = existingWIP.processes.find((ep) => ep.process_name === procName);
-          if (!estProc) return null;
-          const estArr = Array.isArray(estProc[arrName]) ? estProc[arrName] : [];
-          return estArr.find((x) => (x.coa && coa && String(x.coa) === String(coa)) || (x.item_name && itemName && String(x.item_name) === String(itemName)));
-        };
+        // Process each process and append actual arrays
+        const updatedProcesses = existingProcesses.map((proc) => {
+          const procName = proc.process_name;
+          const procActualInputs = actuals[procName] || {};
 
-        const processedActuals = (Array.isArray(processesActual) ? processesActual : []).map((p) => {
-          // other_foc_actual
-          const other_foc_actual = (p.other_foc_actual || []).map((it) => {
-            const est = findEst(p.process_name, "other_foc", it.coa, it.item_name);
-            const rate = toNum(it.rate ?? est?.rate ?? est?.price ?? 0);
-            const est_qty = toNum(it.est_qty ?? est?.est_qty ?? 0);
-            const price = toNum(it.price ?? est?.price ?? rate);
-            const item_name = it.item_name ?? est?.item_name ?? null;
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
+          const newProc = { ...proc };
+
+          // Helper to duplicate and create actual entries based on original array and provided inputs
+          const buildActualList = (origList, inputsList, mapper) => {
+            if (!Array.isArray(origList) || origList.length === 0) return [];
+            const results = [];
+            for (let i = 0; i < origList.length; i++) {
+              const orig = origList[i] || {};
+              const input = Array.isArray(inputsList) ? inputsList[i] || inputsList[0] || {} : inputsList || {};
+              const built = mapper(orig, input);
+              results.push(built);
+            }
+            return results;
+          };
+
+          // 1) other_foc_actual
+          const otherInputs = procActualInputs.other_foc_actual || [];
+          const otherActual = buildActualList(proc.other_foc || [], otherInputs, (orig, input) => {
+            const rate = toNum(input.rate);
+            const est_qty = toNum(input.est_qty);
+            const total_est_rate = est_qty * rate;
             total_other_foc_actual += total_est_rate;
-            return { ...est, ...it, desc, unit, rate, price, est_qty, item_name, total_est_rate };
+            return {
+              coa: orig.coa,
+              desc: orig.desc,
+              rate,
+              unit: orig.unit,
+              price: orig.price,
+              est_qty,
+              item_name: orig.item_name,
+              total_est_rate,
+            };
           });
+          if (otherActual.length > 0) newProc.other_foc_actual = (newProc.other_foc_actual || []).concat(otherActual);
 
-          // direct_labor_actual
-          const direct_labor_actual = (p.direct_labor_actual || []).map((it) => {
-            const est = findEst(p.process_name, "direct_labor", it.coa, it.item_name);
-            const qty = toNum(it.qty ?? est?.qty ?? 0);
-            const order_compl_time = toNum(it.order_compl_time ?? est?.order_compl_time ?? 0);
-            const rate_per_hours = toNum(it.rate_per_hours ?? est?.rate_per_hours ?? 0);
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
-            const total_est_rate = qty * order_compl_time * rate_per_hours;
+          // 2) direct_labor_actual
+          const dlInputs = procActualInputs.direct_labor_actual || [];
+          const dlActual = buildActualList(proc.direct_labor || [], dlInputs, (orig, input) => {
+            const qty = toNum(input.qty);
+            const rate_per_hours = toNum(input.rate_per_hours);
+            const order_compl_time = toNum(input.order_compl_time);
+            const total_est_rate = qty * rate_per_hours * order_compl_time;
             total_direct_labor_actual += total_est_rate;
-            return { ...est, ...it, desc, unit, qty, order_compl_time, rate_per_hours, item_name, total_est_rate };
+            return {
+              coa: orig.coa,
+              qty,
+              desc: orig.desc,
+              unit: orig.unit,
+              item_name: orig.item_name,
+              rate_per_hours,
+              total_est_rate,
+              order_compl_time,
+            };
           });
+          if (dlActual.length > 0) newProc.direct_labor_actual = (newProc.direct_labor_actual || []).concat(dlActual);
 
-          // indirect_labor_actual
-          const indirect_labor_actual = (p.indirect_labor_actual || []).map((it) => {
-            const est = findEst(p.process_name, "indirect_labor", it.coa, it.item_name);
-            const qty = toNum(it.qty ?? est?.qty ?? 0);
-            const order_compl_time = toNum(it.order_compl_time ?? est?.order_compl_time ?? 0);
-            const rate_per_hours = toNum(it.rate_per_hours ?? est?.rate_per_hours ?? 0);
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
-            const total_est_rate = qty * order_compl_time * rate_per_hours;
+          // 3) indirect_labor_actual
+          const ilInputs = procActualInputs.indirect_labor_actual || [];
+          const ilActual = buildActualList(proc.indirect_labor || [], ilInputs, (orig, input) => {
+            const qty = toNum(input.qty);
+            const rate_per_hours = toNum(input.rate_per_hours);
+            const order_compl_time = toNum(input.order_compl_time);
+            const total_est_rate = qty * rate_per_hours * order_compl_time;
             total_indirect_labor_actual += total_est_rate;
-            return { ...est, ...it, desc, unit, qty, order_compl_time, rate_per_hours, item_name, total_est_rate };
+            return {
+              coa: orig.coa,
+              qty,
+              desc: orig.desc,
+              unit: orig.unit,
+              item_name: orig.item_name,
+              rate_per_hours,
+              total_est_rate,
+              order_compl_time,
+            };
           });
+          if (ilActual.length > 0) newProc.indirect_labor_actual = (newProc.indirect_labor_actual || []).concat(ilActual);
 
-          // utilities_cost_actual
-          const utilities_cost_actual = (p.utilities_cost_actual || []).map((it) => {
-            const est = findEst(p.process_name, "utilities_cost", it.coa, it.item_name);
-            const rate = toNum(it.rate ?? est?.rate ?? est?.price ?? 0);
-            const est_qty = toNum(it.est_qty ?? est?.est_qty ?? 0);
-            const price = toNum(it.price ?? est?.price ?? rate);
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
-            const total_est_rate = toNum(it.total_est_rate) || rate * est_qty;
+          // 4) utilities_cost_actual
+          const utilInputs = procActualInputs.utilities_cost_actual || [];
+          const utilActual = buildActualList(proc.utilities_cost || [], utilInputs, (orig, input) => {
+            const rate = toNum(input.rate);
+            const est_qty = toNum(input.est_qty);
+            const total_est_rate = est_qty * rate;
             total_utilities_cost_actual += total_est_rate;
-            return { ...est, ...it, desc, unit, rate, price, est_qty, item_name, total_est_rate };
+            return {
+              coa: orig.coa,
+              desc: orig.desc,
+              rate,
+              unit: orig.unit,
+              price: orig.price,
+              est_qty,
+              item_name: orig.item_name,
+              total_est_rate,
+            };
           });
+          if (utilActual.length > 0) newProc.utilities_cost_actual = (newProc.utilities_cost_actual || []).concat(utilActual);
 
-          // direct_material_actual
-          const direct_material_actual = (p.direct_material_actual || []).map((it) => {
-            const est = findEst(p.process_name, "direct_material", it.coa, it.item_name);
-            const qty = toNum(it.qty ?? est?.qty ?? 0);
-            const price = toNum(it.price ?? est?.price ?? 0);
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
+          // 5) direct_material_actual
+          const dmInputs = procActualInputs.direct_material_actual || [];
+          const dmActual = buildActualList(proc.direct_material || [], dmInputs, (orig, input) => {
+            const qty = toNum(input.qty);
+            const price = toNum(input.price);
             const total = qty * price;
             total_direct_material_actual += total;
-            return { ...est, ...it, desc, unit, qty, price, item_name, total };
+            return {
+              coa: orig.coa,
+              qty,
+              desc: orig.desc,
+              unit: orig.unit,
+              price,
+              total,
+              item_name: orig.item_name,
+            };
           });
+          if (dmActual.length > 0) newProc.direct_material_actual = (newProc.direct_material_actual || []).concat(dmActual);
 
-          // indirect_material_actual
-          const indirect_material_actual = (p.indirect_material_actual || []).map((it) => {
-            const est = findEst(p.process_name, "indirect_material", it.coa, it.item_name);
-            const qty = toNum(it.qty ?? est?.qty ?? 0);
-            const price = toNum(it.price ?? est?.price ?? 0);
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
+          // 6) indirect_material_actual
+          const imInputs = procActualInputs.indirect_material_actual || [];
+          const imActual = buildActualList(proc.indirect_material || [], imInputs, (orig, input) => {
+            const qty = toNum(input.qty);
+            const price = toNum(input.price);
             const total = qty * price;
             total_indirect_material_actual += total;
-            return { ...est, ...it, desc, unit, qty, price, item_name, total };
+            return {
+              coa: orig.coa,
+              qty,
+              desc: orig.desc,
+              unit: orig.unit,
+              price,
+              total,
+              item_name: orig.item_name,
+            };
           });
+          if (imActual.length > 0) newProc.indirect_material_actual = (newProc.indirect_material_actual || []).concat(imActual);
 
-          // items_depreciation_actual
-          const items_depreciation_actual = (p.items_depreciation_actual || []).map((it) => {
-            const est = findEst(p.process_name, "items_depreciation", it.coa, it.item_name);
-            const qty = toNum(it.qty ?? est?.qty ?? 0);
-            const rate_estimated = toNum(it.rate_estimated ?? est?.rate_estimated ?? 0);
-            const total_est_rate = toNum(it.total_est_rate) || rate_estimated * qty;
+          // 7) items_depreciation_actual
+          const depInputs = procActualInputs.items_depreciation_actual || [];
+          const depActual = buildActualList(proc.items_depreciation || [], depInputs, (orig, input) => {
+            const total_est_rate = toNum(input.total_est_rate);
             total_items_depreciation_actual += total_est_rate;
-            const desc = it.desc ?? est?.desc ?? null;
-            const unit = it.unit ?? est?.unit ?? null;
-            const item_name = it.item_name ?? est?.item_name ?? null;
-            return { ...est, ...it, desc, unit, qty, rate_estimated, item_name, total_est_rate };
+            return {
+              coa: orig.coa,
+              qty: orig.qty,
+              desc: orig.desc,
+              unit: orig.unit,
+              item_name: orig.item_name,
+              rate_estimated: orig.rate_estimated,
+              total_est_rate,
+            };
           });
+          if (depActual.length > 0) newProc.items_depreciation_actual = (newProc.items_depreciation_actual || []).concat(depActual);
 
-          return {
-            process_name: p.process_name,
-            other_foc_actual,
-            direct_labor_actual,
-            indirect_labor_actual,
-            utilities_cost_actual,
-            direct_material_actual,
-            indirect_material_actual,
-            items_depreciation_actual,
-          };
+          return newProc;
         });
 
-        // Compute higher-level aggregates
+        // Aggregate totals
         const total_foc_actual = total_indirect_material_actual + total_indirect_labor_actual + total_items_depreciation_actual + total_utilities_cost_actual + total_other_foc_actual;
         const total_cogm_actual = total_foc_actual + total_direct_material_actual + total_direct_labor_actual;
 
-        const t_finished = toNum(total_finished_goods);
-        const t_defective = toNum(total_defective_goods);
-        const t_expenses = toNum(total_expenses);
+        const tf = toNum(total_finished_goods);
+        const td = toNum(total_defective_goods);
+        const te = toNum(total_expenses);
 
-        const denomForLoss = t_finished + t_defective + t_expenses;
-        const prod_loss = denomForLoss > 0 ? t_expenses * (total_cogm_actual / denomForLoss) : 0;
-
+        const denom = tf + td + te;
+        const prod_loss = denom !== 0 ? te * (total_cogm_actual / denom) : 0;
         const nett_total_cogm = total_cogm_actual - prod_loss;
-        const denomForUnit = t_finished + t_defective;
-        const cogm_per_unit_actual = denomForUnit > 0 ? nett_total_cogm / denomForUnit : 0;
+        const cogm_per_unit_actual = tf + td > 0 ? nett_total_cogm / (tf + td) : 0;
 
-        const total_cogm_est_existing = toNum(existingWIP.total_cogm_est || existingWIP.total_cogm_estimate || 0);
+        // cost_variance = total_cogm_actual - total_cogm_est (take from existing record if available)
+        const total_cogm_est_existing = toNum(existingWip.total_cogm_est || existingWip.total_cogm_estimation || 0);
         const cost_variance = total_cogm_actual - total_cogm_est_existing;
 
-        // Prepare update payload
-        const updatePayload = {
-          processes_actual: processedActuals,
-          coa_finished_goods: coa_finished_goods ?? existingWIP.coa_finished_goods,
-          coa_defective_goods: coa_defective_goods ?? existingWIP.coa_defective_goods,
-          coa_expenses: coa_expenses ?? existingWIP.coa_expenses,
-          total_finished_goods: t_finished,
-          total_defective_goods: t_defective,
-          total_expenses: t_expenses,
-          total_other_foc_actual: round2(total_other_foc_actual),
-          total_direct_labor_actual: round2(total_direct_labor_actual),
-          total_indirect_labor_actual: round2(total_indirect_labor_actual),
-          total_utilities_cost_actual: round2(total_utilities_cost_actual),
-          total_direct_material_actual: round2(total_direct_material_actual),
-          total_indirect_material_actual: round2(total_indirect_material_actual),
-          total_items_depreciation_actual: round2(total_items_depreciation_actual),
-          total_foc_actual: round2(total_foc_actual),
-          total_cogm_actual: round2(total_cogm_actual),
-          prod_loss: round2(prod_loss),
-          nett_total_cogm: round2(nett_total_cogm),
-          cogm_per_unit_actual: round2(cogm_per_unit_actual),
-          cost_variance: round2(cost_variance),
-          updated_at: new Date().toISOString(),
-        };
+        // Update work_in_process record
+        const { error: updateErr } = await supabase
+          .from("work_in_process")
+          .update({
+            processes: updatedProcesses,
+            coa_finished_goods: coa_finished_goods ?? existingWip.coa_finished_goods,
+            coa_defective_goods: coa_defective_goods ?? existingWip.coa_defective_goods,
+            coa_expenses: coa_expenses ?? existingWip.coa_expenses,
+            total_finished_goods: tf || existingWip.total_finished_goods,
+            total_defective_goods: td || existingWip.total_defective_goods,
+            total_expenses: te || existingWip.total_expenses,
+            total_other_foc_actual: round2(total_other_foc_actual),
+            total_direct_labor_actual: round2(total_direct_labor_actual),
+            total_indirect_labor_actual: round2(total_indirect_labor_actual),
+            total_utilities_cost_actual: round2(total_utilities_cost_actual),
+            total_direct_material_actual: round2(total_direct_material_actual),
+            total_indirect_material_actual: round2(total_indirect_material_actual),
+            total_items_depreciation_actual: round2(total_items_depreciation_actual),
+            total_foc_actual: round2(total_foc_actual),
+            total_cogm_actual: round2(total_cogm_actual),
+            prod_loss: round2(prod_loss),
+            nett_total_cogm: round2(nett_total_cogm),
+            cogm_per_unit_actual: round2(cogm_per_unit_actual),
+            cost_variance: round2(cost_variance),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id);
 
-        const { error: updateErr } = await supabase.from("work_in_process").update(updatePayload).eq("id", id);
         if (updateErr) return res.status(500).json({ error: true, message: "Failed to update work_in_process: " + updateErr.message });
 
-        return res.status(200).json({ error: false, message: "Work in process updated with actuals", data: updatePayload });
+        return res.status(200).json({
+          error: false,
+          message: "Work In Process updated with actuals successfully",
+          data: {
+            id,
+            totals: {
+              total_other_foc_actual: round2(total_other_foc_actual),
+              total_direct_labor_actual: round2(total_direct_labor_actual),
+              total_indirect_labor_actual: round2(total_indirect_labor_actual),
+              total_utilities_cost_actual: round2(total_utilities_cost_actual),
+              total_direct_material_actual: round2(total_direct_material_actual),
+              total_indirect_material_actual: round2(total_indirect_material_actual),
+              total_items_depreciation_actual: round2(total_items_depreciation_actual),
+              total_foc_actual: round2(total_foc_actual),
+              total_cogm_actual: round2(total_cogm_actual),
+              prod_loss: round2(prod_loss),
+              nett_total_cogm: round2(nett_total_cogm),
+              cogm_per_unit_actual: round2(cogm_per_unit_actual),
+              cost_variance: round2(cost_variance),
+            },
+          },
+        });
       }
 
       default:
