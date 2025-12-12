@@ -1780,7 +1780,7 @@ module.exports = async (req, res) => {
         }
 
         if (search) {
-          const stringColumns = ["bom_name", "sku", "category", "process_name", "job_desc"];
+          const stringColumns = ["bom_name", "sku", "category"];
           const numericColumns = ["qty_goods_est", "est_compl_time", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
 
           const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
@@ -1839,7 +1839,7 @@ module.exports = async (req, res) => {
         }
 
         if (search) {
-          const stringColumns = ["product_name", "sku", "category", "process_name", "job_desc"];
+          const stringColumns = ["product_name", "sku", "category"];
           const numericColumns = ["qty_goods_est", "total_qty_goods_est", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
 
           const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
@@ -1856,6 +1856,65 @@ module.exports = async (req, res) => {
         const { data, error: fetchError } = await query;
         if (fetchError) {
           return res.status(500).json({ error: true, message: "Failed to fetch production plans: " + fetchError.message });
+        }
+
+        return res.status(200).json({ error: false, data });
+      }
+
+      // Get Work In Process Endpoint
+      case "getWorkInProcess": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getWorkInProcess." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const filterCategory = req.query.category;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("work_in_process").select("*").order("created_at", { ascending: false }).range(from, to);
+
+        if (filterCategory) {
+          query = query.eq("category", filterCategory);
+        }
+
+        if (search) {
+          const stringColumns = ["product_name", "sku", "category", "processes", "job_desc"];
+          const numericColumns = ["qty_goods_est", "total_qty_goods_est", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const eqNumericConditions = [];
+
+          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data, error: fetchError } = await query;
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: "Failed to fetch work in process: " + fetchError.message });
         }
 
         return res.status(200).json({ error: false, data });
