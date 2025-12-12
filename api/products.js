@@ -22,6 +22,8 @@ function runMiddleware(req, res, fn) {
 
 // Helper to round numeric values to 2 decimal places but keep them as numbers (not strings)
 const round2 = (n) => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
+// Round to 0 decimal places (integer)
+const round0 = (n) => Math.round(Number(n) || 0);
 
 // Helper to ensure warehouse exists, auto-create if not
 // Supports both single string and array of warehouse names
@@ -58,98 +60,452 @@ async function ensureWarehouseExists(supabase, userId, warehouseInput) {
       continue;
     }
 
-    // Auto-create new warehouse
-    const { data: maxNumberData, error: fetchError } = await supabase.from("warehouses").select("number").order("number", { ascending: false }).limit(1);
-
-    if (fetchError) {
-      return { success: false, error: "Failed to fetch latest warehouse number: " + fetchError.message };
+    // Create new warehouse
+    const { data: created, error: createErr } = await supabase.from("warehouses").insert({ user_id: userId, name: warehouseName, created_at: new Date() }).select("id, name").single();
+    if (createErr) {
+      return { success: false, error: "Failed to create warehouse: " + createErr.message };
     }
-
-    let newNumber = 1;
-    if (maxNumberData && maxNumberData.length > 0) {
-      newNumber = maxNumberData[0].number + 1;
-    }
-
-    const { data: newWarehouse, error: insertError } = await supabase
-      .from("warehouses")
-      .insert([
-        {
-          user_id: userId,
-          number: newNumber,
-          name: warehouseName,
-          location: null,
-          total_stock: 0,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
-
-    if (insertError) {
-      return { success: false, error: "Failed to auto-create warehouse: " + insertError.message };
-    }
-
-    results.push({ existed: false, warehouse: newWarehouse });
-    createdWarehouses.push(warehouseName);
+    createdWarehouses.push(created.name || warehouseName);
+    results.push({ created: true, warehouse: created });
   }
 
-  return {
-    success: true,
-    results,
-    createdWarehouses,
-    allExisted: createdWarehouses.length === 0,
-  };
-}
-
-// Helper to update total_stock for warehouse(s)
-async function updateWarehouseTotalStock(supabase, userId, warehouseInput) {
-  // Normalize input to array
-  let warehouseNames = [];
-
-  if (typeof warehouseInput === "string") {
-    warehouseNames = [warehouseInput];
-  } else if (Array.isArray(warehouseInput)) {
-    warehouseNames = warehouseInput.filter((name) => name && typeof name === "string");
-  }
-
-  for (const warehouseName of warehouseNames) {
-    // Get all stocks for this warehouse
-    const { data: allStocks, error: stockError } = await supabase.from("stock").select("*").eq("user_id", userId);
-
-    if (stockError) {
-      console.error(`Error fetching stocks for warehouse ${warehouseName}:`, stockError);
-      continue;
-    }
-
-    // Count stocks that include this warehouse
-    const stockCount = (allStocks || []).filter((stock) => {
-      if (typeof stock.warehouses === "string") {
-        return stock.warehouses === warehouseName;
-      } else if (Array.isArray(stock.warehouses)) {
-        return stock.warehouses.includes(warehouseName);
-      }
-      return false;
-    }).length;
-
-    // Update warehouse total_stock
-    await supabase.from("warehouses").update({ total_stock: stockCount, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("name", warehouseName);
-  }
+  return { success: true, createdWarehouses, results };
 }
 
 module.exports = async (req, res) => {
   await runMiddleware(req, res, cors);
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
   const { method, query } = req;
   const body = req.body;
   const action = method === "GET" ? query.action : body.action;
+  const crypto = require("crypto");
 
   try {
     switch (action) {
       // === ADD BILL OF MATERIAL ENDPOINT ===
+      case "sendToJobDone": {
+        if (method !== "POST") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use POST for sendToJobDone.",
+          });
+        }
+
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader) return res.status(401).json({ error: true, message: "No authorization header provided" });
+
+          const token = authHeader.split(" ")[1];
+          const supabase = getSupabaseWithToken(token);
+
+          const {
+            data: { user },
+            error: userError,
+          } = await supabase.auth.getUser();
+          if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
+
+          const { id } = req.body;
+          if (!id) return res.status(400).json({ error: true, message: "Missing required field: id" });
+
+          // helper
+          const toNumLocal = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
+          const round0Local = (v) => Math.round(toNumLocal(v));
+
+          // Fetch WIP record
+          const { data: wip, error: wipErr } = await supabase.from("work_in_process").select("*").eq("id", id).single();
+
+          if (wipErr || !wip) return res.status(404).json({ error: true, message: "Work In Process not found" });
+
+          const processes = Array.isArray(wip.processes) ? wip.processes : [];
+
+          // Journal buffers
+          const journalLines = [];
+
+          // default WIP COA from record
+          const wipCOA = "130102";
+
+          // create journal header id
+          const journalId = crypto && crypto.randomUUID ? crypto.randomUUID() : require("crypto").randomUUID();
+
+          // helper to push line (will round values)
+          const pushLine = (account_code, description, debit = 0, credit = 0) => {
+            const d = round0Local(debit);
+            const c = round0Local(credit);
+            // ignore zero-zero lines
+            if ((d === 0 && c === 0) || Number.isNaN(d) || Number.isNaN(c)) return;
+            journalLines.push({
+              journal_entry_id: journalId,
+              account_code,
+              description: description || "",
+              debit: d,
+              credit: c,
+              user_id: user.id,
+            });
+          };
+
+          // mapping: for each group choose the key to read from estimate and actual
+          const groups = [
+            { est: "direct_material", act: "direct_material_actual", estKey: "total", actKey: "total" },
+            { est: "direct_labor", act: "direct_labor_actual", estKey: "total_est_rate", actKey: "total_est_rate" },
+            { est: "indirect_material", act: "indirect_material_actual", estKey: "total", actKey: "total" },
+            { est: "indirect_labor", act: "indirect_labor_actual", estKey: "total_est_rate", actKey: "total_est_rate" },
+            { est: "items_depreciation", act: "items_depreciation_actual", estKey: "total_est_rate", actKey: "total_est_rate" },
+            { est: "utilities_cost", act: "utilities_cost_actual", estKey: "total_est_rate", actKey: "total_est_rate" },
+            { est: "other_foc", act: "other_foc_actual", estKey: "total_est_rate", actKey: "total_est_rate" },
+          ];
+
+          // Iterate processes
+          for (const proc of processes) {
+            for (const g of groups) {
+              const estList = Array.isArray(proc[g.est]) ? proc[g.est] : [];
+              const actList = Array.isArray(proc[g.act]) ? proc[g.act] : [];
+
+              // compute totals (sum of est and act using appropriate keys)
+              const totalEst = estList.reduce((s, it) => s + toNumLocal(it[g.estKey] || 0), 0);
+              const totalAct =
+                actList.length > 0
+                  ? actList.reduce((s, it) => s + toNumLocal(it[g.actKey] || 0), 0)
+                  : // if actual array missing, fallback: try to use estList's actual-like keys if present (defensive)
+                    estList.reduce((s, it) => s + toNumLocal(it[g.actKey] || 0), 0);
+
+              const diff = round0Local(totalAct - totalEst);
+              if (diff === 0) continue; // no journaling when no difference
+
+              const absDiff = Math.abs(diff);
+
+              // Avoid division by zero: if totalEst === 0, distribute equally by item count (or by act values if present)
+              let denomin = totalEst;
+              let fallbackEqualDivide = false;
+              if (denomin === 0) {
+                if (actList.length > 0) {
+                  denomin = actList.reduce((s, it) => s + toNumLocal(it[g.actKey] || 0), 0) || 0;
+                }
+                if (denomin === 0) {
+                  denomin = estList.length > 0 ? estList.length : actList.length > 0 ? actList.length : 1;
+                  fallbackEqualDivide = true;
+                }
+              }
+
+              if (diff > 0) {
+                // actual > estimate: Debit WIP, Credit items
+                pushLine(wipCOA, "Work In Process", absDiff, 0);
+
+                // Distribute credit only to items that have difference (est != act)
+                // Identify targetList by matching items by name/desc
+                const targetList = (estList || []).filter((it) => {
+                  const key = it.item_name || it.desc || it.name || null;
+                  const actMatch = (actList || []).find((a) => (a.item_name || a.desc || a.name || null) === key) || {};
+                  const estVal = toNumLocal(it[g.estKey] || 0);
+                  const actVal = toNumLocal(actMatch[g.actKey] || 0);
+                  return estVal !== actVal;
+                });
+
+                // If nothing differs, fallback to original behavior (proportional by est)
+                const finalList = targetList.length > 0 ? targetList : estList.length > 0 ? estList : actList;
+
+                if (!finalList || finalList.length === 0) {
+                  // nothing to allocate
+                } else {
+                  // compute denominator for finalList
+                  let denomForFinal = 0;
+                  if (fallbackEqualDivide) {
+                    // equal split among finalList
+                    const chunk = round0Local(absDiff / (finalList.length || 1));
+                    for (let i = 0; i < finalList.length; i++) {
+                      const it = finalList[i] || {};
+                      const amount = i === finalList.length - 1 ? round0Local(absDiff - chunk * (finalList.length - 1)) : chunk;
+                      pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, 0, amount);
+                    }
+                  } else {
+                    // proportional by est values within finalList
+                    denomForFinal = finalList.reduce((s, it) => s + toNumLocal(it[g.estKey] || 0), 0);
+                    if (denomForFinal === 0) {
+                      // if denominator zero, equal split
+                      const chunk = round0Local(absDiff / finalList.length);
+                      for (let i = 0; i < finalList.length; i++) {
+                        const it = finalList[i] || {};
+                        const amount = i === finalList.length - 1 ? round0Local(absDiff - chunk * (finalList.length - 1)) : chunk;
+                        pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, 0, amount);
+                      }
+                    } else {
+                      let allocated = 0;
+                      for (let i = 0; i < finalList.length; i++) {
+                        const it = finalList[i];
+                        const estVal = toNumLocal(it[g.estKey] || 0);
+                        const proportion = denomForFinal === 0 ? 0 : estVal / denomForFinal;
+                        const amt = i === finalList.length - 1 ? round0Local(absDiff - allocated) : round0Local(absDiff * proportion);
+                        allocated += amt;
+                        pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, 0, amt);
+                      }
+                    }
+                  }
+                }
+              } else {
+                // actual < estimate: Credit WIP, Debit items
+                pushLine(wipCOA, "Work In Process", 0, absDiff);
+
+                // Distribute debit only to items that have difference (est != act)
+                const targetList = (estList || []).filter((it) => {
+                  const key = it.item_name || it.desc || it.name || null;
+                  const actMatch = (actList || []).find((a) => (a.item_name || a.desc || a.name || null) === key) || {};
+                  const estVal = toNumLocal(it[g.estKey] || 0);
+                  const actVal = toNumLocal(actMatch[g.actKey] || 0);
+                  return estVal !== actVal;
+                });
+
+                const finalList = targetList.length > 0 ? targetList : estList.length > 0 ? estList : actList;
+
+                if (!finalList || finalList.length === 0) {
+                  // nothing to allocate
+                } else {
+                  if (fallbackEqualDivide) {
+                    const chunk = round0Local(absDiff / (finalList.length || 1));
+                    for (let i = 0; i < finalList.length; i++) {
+                      const it = finalList[i] || {};
+                      const amount = i === finalList.length - 1 ? round0Local(absDiff - chunk * (finalList.length - 1)) : chunk;
+                      pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, amount, 0);
+                    }
+                  } else {
+                    const denomForFinal = finalList.reduce((s, it) => s + toNumLocal(it[g.estKey] || 0), 0);
+                    if (denomForFinal === 0) {
+                      const chunk = round0Local(absDiff / finalList.length);
+                      for (let i = 0; i < finalList.length; i++) {
+                        const it = finalList[i] || {};
+                        const amount = i === finalList.length - 1 ? round0Local(absDiff - chunk * (finalList.length - 1)) : chunk;
+                        pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, amount, 0);
+                      }
+                    } else {
+                      let allocated = 0;
+                      for (let i = 0; i < finalList.length; i++) {
+                        const it = finalList[i];
+                        const estVal = toNumLocal(it[g.estKey] || 0);
+                        const proportion = denomForFinal === 0 ? 0 : estVal / denomForFinal;
+                        const amt = i === finalList.length - 1 ? round0Local(absDiff - allocated) : round0Local(absDiff * proportion);
+                        allocated += amt;
+                        pushLine(it.coa || "UNKNOWN", it.item_name || it.desc || g.est, amt, 0);
+                      }
+                    }
+                  }
+                }
+              }
+            } // end groups loop
+          } // end processes loop
+
+          // Build separate postings for Finished Goods, Defective Goods, and Other Expenses
+          const fgLines = [];
+          const pushFgLine = (account_code, description, debit = 0, credit = 0) => {
+            const d = round0Local(debit);
+            const c = round0Local(credit);
+            if ((d === 0 && c === 0) || Number.isNaN(d) || Number.isNaN(c)) return;
+            fgLines.push({
+              journal_entry_id: null, // to be replaced after FG journal id created
+              account_code,
+              description: description || "",
+              debit: d,
+              credit: c,
+              user_id: user.id,
+            });
+          };
+
+          try {
+            const cogmPerUnit = toNumLocal(wip.cogm_per_unit_actual || wip.cogm_per_unit || 0);
+            const totalFinished = toNumLocal(wip.total_finished_goods || 0);
+            const totalDefective = toNumLocal(wip.total_defective_goods || 0);
+            const prodLoss = toNumLocal(wip.prod_loss || 0);
+            const totalExpenses = toNumLocal(wip.total_expenses || wip.total_expenses_actual || 0);
+
+            // Finished Goods
+            const amtFinished = round0Local(cogmPerUnit * totalFinished);
+            if (amtFinished > 0) {
+              // Debit Finished Goods (130103), Credit Work In Process (130102)
+              pushFgLine("130103", "Finished Goods", amtFinished, 0);
+              pushFgLine("130102", "Work In Process", 0, amtFinished);
+            }
+
+            // Defective Goods
+            const amtDefective = round0Local(cogmPerUnit * totalDefective);
+            if (amtDefective > 0) {
+              // Debit Defective Product (130104), Credit Work In Process (130102)
+              pushFgLine("130104", "Defective Product", amtDefective, 0);
+              pushFgLine("130102", "Work In Process", 0, amtDefective);
+            }
+
+            // Other Expenses
+            const amtOtherExpenses = round0Local(prodLoss * totalExpenses);
+            if (amtOtherExpenses > 0) {
+              // Debit Other Expenses (500101-9), Credit Work In Process (130102)
+              pushFgLine("500101-9", "Other Expenses", amtOtherExpenses, 0);
+              pushFgLine("130102", "Work In Process", 0, amtOtherExpenses);
+            }
+          } catch (eAddPosting) {
+            console.error("Failed to compute additional postings for JobDone:", eAddPosting);
+          }
+
+          // If nothing to journal at all
+          if (journalLines.length === 0 && fgLines.length === 0) {
+            return res.status(200).json({ error: false, message: "No differences found — nothing to journal." });
+          }
+
+          // Create variance journal (if any variance lines exist)
+          let createdVarianceJournal = null;
+          let insertedVarianceLines = null;
+          if (journalLines.length > 0) {
+            const { data: journalCreated, error: journalCreateErr } = await supabase
+              .from("journal_entries")
+              .insert([
+                {
+                  id: journalId,
+                  transaction_number: `JOBDONE-${id}`,
+                  description: `Job Done Journal for WIP ${id}`,
+                  user_id: user.id,
+                  entry_date: new Date().toISOString().split("T")[0],
+                  created_at: new Date(),
+                },
+              ])
+              .select()
+              .single();
+
+            if (journalCreateErr) {
+              console.error("journal create err", journalCreateErr);
+              return res.status(500).json({ error: true, message: "Failed to create journal entry: " + journalCreateErr.message });
+            }
+
+            // Insert variance lines and capture inserted rows
+            const { data: insertedLines, error: linesErr } = await supabase.from("journal_entry_lines").insert(journalLines).select();
+            if (linesErr) {
+              console.error("journal lines err", linesErr);
+              await supabase.from("journal_entries").delete().eq("id", journalId);
+              return res.status(500).json({ error: true, message: "Failed to insert journal lines: " + linesErr.message });
+            }
+
+            createdVarianceJournal = journalCreated || null;
+            insertedVarianceLines = insertedLines || [];
+          }
+
+          // Create Finished Goods / Defective / Other Expenses journal (separate) if any
+          let createdFgJournal = null;
+          let insertedFgLines = null;
+          if (fgLines.length > 0) {
+            const fgJournalId = crypto && crypto.randomUUID ? crypto.randomUUID() : require("crypto").randomUUID();
+            const { data: fgJournalCreated, error: fgJournalErr } = await supabase
+              .from("journal_entries")
+              .insert([
+                {
+                  id: fgJournalId,
+                  transaction_number: `FINISHEDGOODS-${id}`,
+                  description: `Finished Goods Journal for WIP ${id}`,
+                  user_id: user.id,
+                  entry_date: new Date().toISOString().split("T")[0],
+                  created_at: new Date(),
+                },
+              ])
+              .select()
+              .single();
+
+            if (fgJournalErr) {
+              console.error("fg journal create err", fgJournalErr);
+              // rollback variance journal if we created it
+              if (createdVarianceJournal && createdVarianceJournal.id) await supabase.from("journal_entries").delete().eq("id", createdVarianceJournal.id);
+              return res.status(500).json({ error: true, message: "Failed to create Finished Goods journal entry: " + fgJournalErr.message });
+            }
+
+            // assign fgJournalId to lines and insert, capture inserted rows
+            const fgToInsert = fgLines.map((ln) => ({ ...ln, journal_entry_id: fgJournalId }));
+            const { data: fgInserted, error: fgLinesErr } = await supabase.from("journal_entry_lines").insert(fgToInsert).select();
+            if (fgLinesErr) {
+              console.error("fg journal lines err", fgLinesErr);
+              // rollback both journals if needed
+              await supabase.from("journal_entries").delete().eq("id", fgJournalId);
+              if (createdVarianceJournal && createdVarianceJournal.id) await supabase.from("journal_entries").delete().eq("id", createdVarianceJournal.id);
+              return res.status(500).json({ error: true, message: "Failed to insert Finished Goods journal lines: " + fgLinesErr.message });
+            }
+
+            createdFgJournal = fgJournalCreated || null;
+            insertedFgLines = fgInserted || [];
+          }
+
+          // -----------------------------
+          // Update stock quantities for direct_material and indirect_material
+          // -----------------------------
+          const stockAdjustments = {}; // coa -> totalQty
+          try {
+            // accumulate qty from processes (direct_material + indirect_material)
+            for (const proc of processes) {
+              const dm = Array.isArray(proc.direct_material) ? proc.direct_material : [];
+              const im = Array.isArray(proc.indirect_material) ? proc.indirect_material : [];
+              for (const it of dm.concat(im)) {
+                const coa = it && it.coa ? String(it.coa) : null;
+                const qty = it && (it.qty !== undefined ? Number(it.qty) : Number(it.qty || 0)) ? Number(it.qty || 0) : 0;
+                if (!coa) continue;
+                if (!stockAdjustments[coa]) stockAdjustments[coa] = 0;
+                stockAdjustments[coa] += qty;
+              }
+            }
+
+            const stockUpdates = [];
+            for (const [coa, qtyToDeduct] of Object.entries(stockAdjustments)) {
+              if (!qtyToDeduct || qtyToDeduct === 0) continue;
+              // Find stock items matching this COA for the user
+              const { data: stocks, error: stockFetchErr } = await supabase.from("stock").select("id,stock_COA,current_stock").eq("stock_COA", coa).eq("user_id", user.id);
+              if (stockFetchErr) {
+                console.error("Failed to fetch stock for COA", coa, stockFetchErr);
+                // rollback journals if any created
+                if (createdFgJournal && createdFgJournal.id) await supabase.from("journal_entries").delete().eq("id", createdFgJournal.id);
+                if (createdVarianceJournal && createdVarianceJournal.id) await supabase.from("journal_entries").delete().eq("id", createdVarianceJournal.id);
+                return res.status(500).json({ error: true, message: "Failed to fetch stock for COA: " + coa + " - " + stockFetchErr.message });
+              }
+
+              if (!stocks || stocks.length === 0) continue; // nothing to update
+
+              // If multiple stock records match, distribute deduction proportionally by current_stock (or equally if zeros)
+              let totalAvailable = stocks.reduce((s, r) => s + (Number(r.current_stock) || 0), 0);
+              if (totalAvailable === 0) totalAvailable = stocks.length;
+
+              let allocated = 0;
+              for (let i = 0; i < stocks.length; i++) {
+                const srec = stocks[i];
+                let portion = 0;
+                if (i === stocks.length - 1) {
+                  portion = qtyToDeduct - allocated; // remainder
+                } else {
+                  const weight = Number(srec.current_stock) || 0;
+                  portion = Math.round((weight / totalAvailable) * qtyToDeduct) || 0;
+                }
+                allocated += portion;
+                const before = Number(srec.current_stock) || 0;
+                const after = before - portion;
+                const { error: updateErr } = await supabase.from("stock").update({ current_stock: after, updated_at: new Date().toISOString() }).eq("id", srec.id);
+                if (updateErr) {
+                  console.error("Failed to update stock id", srec.id, updateErr);
+                  // rollback journals if any created
+                  if (createdFgJournal && createdFgJournal.id) await supabase.from("journal_entries").delete().eq("id", createdFgJournal.id);
+                  if (createdVarianceJournal && createdVarianceJournal.id) await supabase.from("journal_entries").delete().eq("id", createdVarianceJournal.id);
+                  return res.status(500).json({ error: true, message: "Failed to update stock for COA: " + coa + " - " + updateErr.message });
+                }
+                stockUpdates.push({ stock_id: srec.id, stock_COA: coa, before, after, deducted: portion });
+              }
+            }
+
+            return res.status(200).json({
+              error: false,
+              message: "JobDone journaling created successfully",
+              variance_journal: createdVarianceJournal,
+              variance_lines: insertedVarianceLines,
+              finished_goods_journal: createdFgJournal,
+              finished_goods_lines: insertedFgLines,
+              stock_updates: stockUpdates,
+            });
+          } catch (stockErr) {
+            console.error("Stock update error:", stockErr);
+            // rollback journals if any created
+            if (createdFgJournal && createdFgJournal.id) await supabase.from("journal_entries").delete().eq("id", createdFgJournal.id);
+            if (createdVarianceJournal && createdVarianceJournal.id) await supabase.from("journal_entries").delete().eq("id", createdVarianceJournal.id);
+            return res.status(500).json({ error: true, message: "Stock update error: " + (stockErr && stockErr.message ? stockErr.message : stockErr) });
+          }
+        } catch (err) {
+          console.error("sendToJobDone error", err);
+          return res.status(500).json({ error: true, message: "Internal server error in sendToJobDone" });
+        }
+      }
       case "addBillOfMaterial": {
         if (method !== "POST") {
           return res.status(405).json({
@@ -1939,17 +2295,17 @@ module.exports = async (req, res) => {
             warehouse: warehouse ?? existingPlan.warehouse,
             schedule: schedule ?? existingPlan.schedule,
             processes: updatedProcesses,
-            total_qty_goods_est: round2(total_qty_goods_est),
-            total_direct_material: round2(agg_total_direct_material),
-            total_direct_labor: round2(agg_total_direct_labor),
-            total_indirect_material: round2(agg_total_indirect_material),
-            total_indirect_labor: round2(agg_total_indirect_labor),
-            total_items_depreciation: round2(agg_total_items_depreciation),
-            total_utilities_cost: round2(agg_total_utilities_cost),
-            total_other_foc: round2(agg_total_other_foc),
-            total_foc_est: round2(total_foc_est),
-            total_cogm_est: round2(total_cogm_est),
-            cogm_unit_est: round2(cogm_unit_est),
+            total_qty_goods_est: round0(total_qty_goods_est),
+            total_direct_material: round0(agg_total_direct_material),
+            total_direct_labor: round0(agg_total_direct_labor),
+            total_indirect_material: round0(agg_total_indirect_material),
+            total_indirect_labor: round0(agg_total_indirect_labor),
+            total_items_depreciation: round0(agg_total_items_depreciation),
+            total_utilities_cost: round0(agg_total_utilities_cost),
+            total_other_foc: round0(agg_total_other_foc),
+            total_foc_est: round0(total_foc_est),
+            total_cogm_est: round0(total_cogm_est),
+            cogm_unit_est: round0(cogm_unit_est),
             updated_at: new Date().toISOString(),
           })
           .eq("id", id);
@@ -1996,21 +2352,21 @@ module.exports = async (req, res) => {
               sku: finalSku,
               total_prod_order: finalTotalProdOrder,
               qty_goods_est: finalQtyGoodsEst,
-              total_qty_goods_est: round2(finalTotalQtyGoodsEst),
-              total_direct_material: round2(agg_total_direct_material),
-              total_direct_labor: round2(agg_total_direct_labor),
-              total_indirect_material: round2(agg_total_indirect_material),
-              total_indirect_labor: round2(agg_total_indirect_labor),
-              total_items_depreciation: round2(agg_total_items_depreciation),
-              total_utilities_cost: round2(agg_total_utilities_cost),
-              total_other_foc: round2(agg_total_other_foc),
+              total_qty_goods_est: round0(finalTotalQtyGoodsEst),
+              total_direct_material: round0(agg_total_direct_material),
+              total_direct_labor: round0(agg_total_direct_labor),
+              total_indirect_material: round0(agg_total_indirect_material),
+              total_indirect_labor: round0(agg_total_indirect_labor),
+              total_items_depreciation: round0(agg_total_items_depreciation),
+              total_utilities_cost: round0(agg_total_utilities_cost),
+              total_other_foc: round0(agg_total_other_foc),
               category: finalCategory,
               warehouse: finalWarehouse,
               schedule: finalSchedule,
               processes: updatedProcesses, // use recalculated processes
-              total_foc_est: round2(total_foc_est),
-              total_cogm_est: round2(total_cogm_est),
-              cogm_unit_est: round2(cogm_unit_est),
+              total_foc_est: round0(total_foc_est),
+              total_cogm_est: round0(total_cogm_est),
+              cogm_unit_est: round0(cogm_unit_est),
               created_at: new Date().toISOString(),
             };
 
@@ -2041,21 +2397,21 @@ module.exports = async (req, res) => {
                 sku: finalSku,
                 total_prod_order: finalTotalProdOrder,
                 qty_goods_est: finalQtyGoodsEst,
-                total_qty_goods_est: round2(finalTotalQtyGoodsEst),
-                total_direct_material: round2(agg_total_direct_material),
-                total_direct_labor: round2(agg_total_direct_labor),
-                total_indirect_material: round2(agg_total_indirect_material),
-                total_indirect_labor: round2(agg_total_indirect_labor),
-                total_items_depreciation: round2(agg_total_items_depreciation),
-                total_utilities_cost: round2(agg_total_utilities_cost),
-                total_other_foc: round2(agg_total_other_foc),
+                total_qty_goods_est: round0(finalTotalQtyGoodsEst),
+                total_direct_material: round0(agg_total_direct_material),
+                total_direct_labor: round0(agg_total_direct_labor),
+                total_indirect_material: round0(agg_total_indirect_material),
+                total_indirect_labor: round0(agg_total_indirect_labor),
+                total_items_depreciation: round0(agg_total_items_depreciation),
+                total_utilities_cost: round0(agg_total_utilities_cost),
+                total_other_foc: round0(agg_total_other_foc),
                 category: finalCategory,
                 warehouse: finalWarehouse,
                 schedule: finalSchedule,
                 processes: updatedProcesses, // use recalculated processes
-                total_foc_est: round2(total_foc_est),
-                total_cogm_est: round2(total_cogm_est),
-                cogm_unit_est: round2(cogm_unit_est),
+                total_foc_est: round0(total_foc_est),
+                total_cogm_est: round0(total_cogm_est),
+                cogm_unit_est: round0(cogm_unit_est),
                 updated_at: new Date().toISOString(),
               };
 
@@ -2089,17 +2445,17 @@ module.exports = async (req, res) => {
           message: responseMessage,
           data: {
             id,
-            total_qty_goods_est: round2(total_qty_goods_est),
-            total_direct_material: round2(agg_total_direct_material),
-            total_direct_labor: round2(agg_total_direct_labor),
-            total_indirect_material: round2(agg_total_indirect_material),
-            total_indirect_labor: round2(agg_total_indirect_labor),
-            total_items_depreciation: round2(agg_total_items_depreciation),
-            total_utilities_cost: round2(agg_total_utilities_cost),
-            total_other_foc: round2(agg_total_other_foc),
-            total_foc_est: round2(total_foc_est),
-            total_cogm_est: round2(total_cogm_est),
-            cogm_unit_est: round2(cogm_unit_est),
+            total_qty_goods_est: round0(total_qty_goods_est),
+            total_direct_material: round0(agg_total_direct_material),
+            total_direct_labor: round0(agg_total_direct_labor),
+            total_indirect_material: round0(agg_total_indirect_material),
+            total_indirect_labor: round0(agg_total_indirect_labor),
+            total_items_depreciation: round0(agg_total_items_depreciation),
+            total_utilities_cost: round0(agg_total_utilities_cost),
+            total_other_foc: round0(agg_total_other_foc),
+            total_foc_est: round0(total_foc_est),
+            total_cogm_est: round0(total_cogm_est),
+            cogm_unit_est: round0(cogm_unit_est),
           },
         });
       }
@@ -2187,141 +2543,184 @@ module.exports = async (req, res) => {
           };
 
           // 1) other_foc_actual
-          const otherInputs = procActualInputs.other_foc_actual || [];
-          const otherActual = buildActualList(proc.other_foc || [], otherInputs, (orig, input) => {
-            const rate = toNum(input.rate);
-            const est_qty = toNum(input.est_qty);
-            const total_est_rate = est_qty * rate;
-            total_other_foc_actual += total_est_rate;
-            return {
-              coa: orig.coa,
-              desc: orig.desc,
-              rate,
-              unit: orig.unit,
-              price: orig.price,
-              est_qty,
-              item_name: orig.item_name,
-              total_est_rate,
-            };
-          });
-          if (otherActual.length > 0) newProc.other_foc_actual = (newProc.other_foc_actual || []).concat(otherActual);
+          if (Array.isArray(proc.other_foc_actual) && proc.other_foc_actual.length > 0) {
+            // already has actuals stored — use them and accumulate totals (avoid duplication)
+            for (const a of proc.other_foc_actual) {
+              total_other_foc_actual += toNum(a.total_est_rate || (a.rate && a.est_qty ? a.rate * a.est_qty : 0));
+            }
+          } else {
+            const otherInputs = procActualInputs.other_foc_actual || [];
+            const otherActual = buildActualList(proc.other_foc || [], otherInputs, (orig, input) => {
+              const rate = toNum(input.rate);
+              const est_qty = toNum(input.est_qty);
+              const total_est_rate = round2(est_qty * rate);
+              total_other_foc_actual += total_est_rate;
+              return {
+                coa: orig.coa,
+                desc: orig.desc,
+                rate: round2(rate),
+                unit: orig.unit,
+                price: round2(orig.price || 0),
+                est_qty: round2(est_qty),
+                item_name: orig.item_name,
+                total_est_rate,
+              };
+            });
+            if (otherActual.length > 0) newProc.other_foc_actual = otherActual;
+          }
 
           // 2) direct_labor_actual
-          const dlInputs = procActualInputs.direct_labor_actual || [];
-          const dlActual = buildActualList(proc.direct_labor || [], dlInputs, (orig, input) => {
-            const qty = toNum(input.qty);
-            const rate_per_hours = toNum(input.rate_per_hours);
-            const order_compl_time = toNum(input.order_compl_time);
-            const total_est_rate = qty * rate_per_hours * order_compl_time;
-            total_direct_labor_actual += total_est_rate;
-            return {
-              coa: orig.coa,
-              qty,
-              desc: orig.desc,
-              unit: orig.unit,
-              item_name: orig.item_name,
-              rate_per_hours,
-              total_est_rate,
-              order_compl_time,
-            };
-          });
-          if (dlActual.length > 0) newProc.direct_labor_actual = (newProc.direct_labor_actual || []).concat(dlActual);
+          if (Array.isArray(proc.direct_labor_actual) && proc.direct_labor_actual.length > 0) {
+            for (const a of proc.direct_labor_actual) {
+              total_direct_labor_actual += toNum(a.total_est_rate || (a.qty && a.rate_per_hours && a.order_compl_time ? a.qty * a.rate_per_hours * a.order_compl_time : 0));
+            }
+          } else {
+            const dlInputs = procActualInputs.direct_labor_actual || [];
+            const dlActual = buildActualList(proc.direct_labor || [], dlInputs, (orig, input) => {
+              const qty = toNum(input.qty);
+              const rate_per_hours = toNum(input.rate_per_hours);
+              const order_compl_time = toNum(input.order_compl_time);
+              const total_est_rate = round2(qty * rate_per_hours * order_compl_time);
+              total_direct_labor_actual += total_est_rate;
+              return {
+                coa: orig.coa,
+                qty: round2(qty),
+                desc: orig.desc,
+                unit: orig.unit,
+                item_name: orig.item_name,
+                rate_per_hours: round2(rate_per_hours),
+                total_est_rate,
+                order_compl_time: round2(order_compl_time),
+              };
+            });
+            if (dlActual.length > 0) newProc.direct_labor_actual = dlActual;
+          }
 
           // 3) indirect_labor_actual
-          const ilInputs = procActualInputs.indirect_labor_actual || [];
-          const ilActual = buildActualList(proc.indirect_labor || [], ilInputs, (orig, input) => {
-            const qty = toNum(input.qty);
-            const rate_per_hours = toNum(input.rate_per_hours);
-            const order_compl_time = toNum(input.order_compl_time);
-            const total_est_rate = qty * rate_per_hours * order_compl_time;
-            total_indirect_labor_actual += total_est_rate;
-            return {
-              coa: orig.coa,
-              qty,
-              desc: orig.desc,
-              unit: orig.unit,
-              item_name: orig.item_name,
-              rate_per_hours,
-              total_est_rate,
-              order_compl_time,
-            };
-          });
-          if (ilActual.length > 0) newProc.indirect_labor_actual = (newProc.indirect_labor_actual || []).concat(ilActual);
+          if (Array.isArray(proc.indirect_labor_actual) && proc.indirect_labor_actual.length > 0) {
+            for (const a of proc.indirect_labor_actual) {
+              total_indirect_labor_actual += toNum(a.total_est_rate || (a.qty && a.rate_per_hours && a.order_compl_time ? a.qty * a.rate_per_hours * a.order_compl_time : 0));
+            }
+          } else {
+            const ilInputs = procActualInputs.indirect_labor_actual || [];
+            const ilActual = buildActualList(proc.indirect_labor || [], ilInputs, (orig, input) => {
+              const qty = toNum(input.qty);
+              const rate_per_hours = toNum(input.rate_per_hours);
+              const order_compl_time = toNum(input.order_compl_time);
+              const total_est_rate = round2(qty * rate_per_hours * order_compl_time);
+              total_indirect_labor_actual += total_est_rate;
+              return {
+                coa: orig.coa,
+                qty: round2(qty),
+                desc: orig.desc,
+                unit: orig.unit,
+                item_name: orig.item_name,
+                rate_per_hours: round2(rate_per_hours),
+                total_est_rate,
+                order_compl_time: round2(order_compl_time),
+              };
+            });
+            if (ilActual.length > 0) newProc.indirect_labor_actual = ilActual;
+          }
 
           // 4) utilities_cost_actual
-          const utilInputs = procActualInputs.utilities_cost_actual || [];
-          const utilActual = buildActualList(proc.utilities_cost || [], utilInputs, (orig, input) => {
-            const rate = toNum(input.rate);
-            const est_qty = toNum(input.est_qty);
-            const total_est_rate = est_qty * rate;
-            total_utilities_cost_actual += total_est_rate;
-            return {
-              coa: orig.coa,
-              desc: orig.desc,
-              rate,
-              unit: orig.unit,
-              price: orig.price,
-              est_qty,
-              item_name: orig.item_name,
-              total_est_rate,
-            };
-          });
-          if (utilActual.length > 0) newProc.utilities_cost_actual = (newProc.utilities_cost_actual || []).concat(utilActual);
+          if (Array.isArray(proc.utilities_cost_actual) && proc.utilities_cost_actual.length > 0) {
+            for (const a of proc.utilities_cost_actual) {
+              total_utilities_cost_actual += toNum(a.total_est_rate || (a.rate && a.est_qty ? a.rate * a.est_qty : 0));
+            }
+          } else {
+            const utilInputs = procActualInputs.utilities_cost_actual || [];
+            const utilActual = buildActualList(proc.utilities_cost || [], utilInputs, (orig, input) => {
+              const rate = toNum(input.rate);
+              const est_qty = toNum(input.est_qty);
+              const total_est_rate = round2(est_qty * rate);
+              total_utilities_cost_actual += total_est_rate;
+              return {
+                coa: orig.coa,
+                desc: orig.desc,
+                rate: round2(rate),
+                unit: orig.unit,
+                price: round2(orig.price || 0),
+                est_qty: round2(est_qty),
+                item_name: orig.item_name,
+                total_est_rate,
+              };
+            });
+            if (utilActual.length > 0) newProc.utilities_cost_actual = utilActual;
+          }
 
           // 5) direct_material_actual
-          const dmInputs = procActualInputs.direct_material_actual || [];
-          const dmActual = buildActualList(proc.direct_material || [], dmInputs, (orig, input) => {
-            const qty = toNum(input.qty);
-            const price = toNum(input.price);
-            const total = qty * price;
-            total_direct_material_actual += total;
-            return {
-              coa: orig.coa,
-              qty,
-              desc: orig.desc,
-              unit: orig.unit,
-              price,
-              total,
-              item_name: orig.item_name,
-            };
-          });
-          if (dmActual.length > 0) newProc.direct_material_actual = (newProc.direct_material_actual || []).concat(dmActual);
+          if (Array.isArray(proc.direct_material_actual) && proc.direct_material_actual.length > 0) {
+            for (const a of proc.direct_material_actual) {
+              total_direct_material_actual += toNum(a.total || (a.qty && a.price ? a.qty * a.price : 0));
+            }
+          } else {
+            const dmInputs = procActualInputs.direct_material_actual || [];
+            const dmActual = buildActualList(proc.direct_material || [], dmInputs, (orig, input) => {
+              const qty = toNum(input.qty);
+              const price = toNum(input.price);
+              const total = round2(qty * price);
+              total_direct_material_actual += total;
+              return {
+                coa: orig.coa,
+                qty: round2(qty),
+                desc: orig.desc,
+                unit: orig.unit,
+                price: round2(price),
+                total,
+                item_name: orig.item_name,
+              };
+            });
+            if (dmActual.length > 0) newProc.direct_material_actual = dmActual;
+          }
 
           // 6) indirect_material_actual
-          const imInputs = procActualInputs.indirect_material_actual || [];
-          const imActual = buildActualList(proc.indirect_material || [], imInputs, (orig, input) => {
-            const qty = toNum(input.qty);
-            const price = toNum(input.price);
-            const total = qty * price;
-            total_indirect_material_actual += total;
-            return {
-              coa: orig.coa,
-              qty,
-              desc: orig.desc,
-              unit: orig.unit,
-              price,
-              total,
-              item_name: orig.item_name,
-            };
-          });
-          if (imActual.length > 0) newProc.indirect_material_actual = (newProc.indirect_material_actual || []).concat(imActual);
+          if (Array.isArray(proc.indirect_material_actual) && proc.indirect_material_actual.length > 0) {
+            for (const a of proc.indirect_material_actual) {
+              total_indirect_material_actual += toNum(a.total || (a.qty && a.price ? a.qty * a.price : 0));
+            }
+          } else {
+            const imInputs = procActualInputs.indirect_material_actual || [];
+            const imActual = buildActualList(proc.indirect_material || [], imInputs, (orig, input) => {
+              const qty = toNum(input.qty);
+              const price = toNum(input.price);
+              const total = round2(qty * price);
+              total_indirect_material_actual += total;
+              return {
+                coa: orig.coa,
+                qty: round2(qty),
+                desc: orig.desc,
+                unit: orig.unit,
+                price: round2(price),
+                total,
+                item_name: orig.item_name,
+              };
+            });
+            if (imActual.length > 0) newProc.indirect_material_actual = imActual;
+          }
 
           // 7) items_depreciation_actual
-          const depInputs = procActualInputs.items_depreciation_actual || [];
-          const depActual = buildActualList(proc.items_depreciation || [], depInputs, (orig, input) => {
-            const total_est_rate = toNum(input.total_est_rate);
-            total_items_depreciation_actual += total_est_rate;
-            return {
-              coa: orig.coa,
-              qty: orig.qty,
-              desc: orig.desc,
-              unit: orig.unit,
-              item_name: orig.item_name,
-              rate_estimated: orig.rate_estimated,
-              total_est_rate,
-            };
-          });
-          if (depActual.length > 0) newProc.items_depreciation_actual = (newProc.items_depreciation_actual || []).concat(depActual);
+          if (Array.isArray(proc.items_depreciation_actual) && proc.items_depreciation_actual.length > 0) {
+            for (const a of proc.items_depreciation_actual) {
+              total_items_depreciation_actual += toNum(a.total_est_rate || 0);
+            }
+          } else {
+            const depInputs = procActualInputs.items_depreciation_actual || [];
+            const depActual = buildActualList(proc.items_depreciation || [], depInputs, (orig, input) => {
+              const total_est_rate = round2(toNum(input.total_est_rate));
+              total_items_depreciation_actual += total_est_rate;
+              return {
+                coa: orig.coa,
+                qty: orig.qty,
+                desc: orig.desc,
+                unit: orig.unit,
+                item_name: orig.item_name,
+                rate_estimated: round2(orig.rate_estimated || 0),
+                total_est_rate,
+              };
+            });
+            if (depActual.length > 0) newProc.items_depreciation_actual = depActual;
+          }
 
           return newProc;
         });
@@ -2354,47 +2753,169 @@ module.exports = async (req, res) => {
             total_finished_goods: tf || existingWip.total_finished_goods,
             total_defective_goods: td || existingWip.total_defective_goods,
             total_expenses: te || existingWip.total_expenses,
-            total_other_foc_actual: round2(total_other_foc_actual),
-            total_direct_labor_actual: round2(total_direct_labor_actual),
-            total_indirect_labor_actual: round2(total_indirect_labor_actual),
-            total_utilities_cost_actual: round2(total_utilities_cost_actual),
-            total_direct_material_actual: round2(total_direct_material_actual),
-            total_indirect_material_actual: round2(total_indirect_material_actual),
-            total_items_depreciation_actual: round2(total_items_depreciation_actual),
-            total_foc_actual: round2(total_foc_actual),
-            total_cogm_actual: round2(total_cogm_actual),
-            prod_loss: round2(prod_loss),
-            nett_total_cogm: round2(nett_total_cogm),
-            cogm_per_unit_actual: round2(cogm_per_unit_actual),
-            cost_variance: round2(cost_variance),
+            total_other_foc_actual: round0(total_other_foc_actual),
+            total_direct_labor_actual: round0(total_direct_labor_actual),
+            total_indirect_labor_actual: round0(total_indirect_labor_actual),
+            total_utilities_cost_actual: round0(total_utilities_cost_actual),
+            total_direct_material_actual: round0(total_direct_material_actual),
+            total_indirect_material_actual: round0(total_indirect_material_actual),
+            total_items_depreciation_actual: round0(total_items_depreciation_actual),
+            total_foc_actual: round0(total_foc_actual),
+            total_cogm_actual: round0(total_cogm_actual),
+            prod_loss: round0(prod_loss),
+            nett_total_cogm: round0(nett_total_cogm),
+            cogm_per_unit_actual: round0(cogm_per_unit_actual),
+            cost_variance: round0(cost_variance),
             updated_at: new Date().toISOString(),
           })
           .eq("id", id);
 
         if (updateErr) return res.status(500).json({ error: true, message: "Failed to update work_in_process: " + updateErr.message });
 
-        return res.status(200).json({
-          error: false,
-          message: "Work In Process updated with actuals successfully",
-          data: {
-            id,
-            totals: {
-              total_other_foc_actual: round2(total_other_foc_actual),
-              total_direct_labor_actual: round2(total_direct_labor_actual),
-              total_indirect_labor_actual: round2(total_indirect_labor_actual),
-              total_utilities_cost_actual: round2(total_utilities_cost_actual),
-              total_direct_material_actual: round2(total_direct_material_actual),
-              total_indirect_material_actual: round2(total_indirect_material_actual),
-              total_items_depreciation_actual: round2(total_items_depreciation_actual),
-              total_foc_actual: round2(total_foc_actual),
-              total_cogm_actual: round2(total_cogm_actual),
-              prod_loss: round2(prod_loss),
-              nett_total_cogm: round2(nett_total_cogm),
-              cogm_per_unit_actual: round2(cogm_per_unit_actual),
-              cost_variance: round2(cost_variance),
+        // -----------------------------
+        // Create WIP Journal Entry (with validation)
+        // -----------------------------
+        try {
+          // Validate required COAs before creating any journal header/lines
+          const missing_coa = [];
+
+          // Helper ambil amount sesuai tipe proses (use original keys, not _actual)
+          const extractAmount = (item, key) => {
+            if (!item) return 0;
+            switch (key) {
+              case "direct_material":
+              case "indirect_material":
+                return Number(item.total) || 0;
+              case "direct_labor":
+              case "indirect_labor":
+              case "items_depreciation":
+              case "utilities_cost":
+              case "other_foc":
+                return Number(item.total_est_rate) || 0;
+              default:
+                return 0;
+            }
+          };
+
+          const processGroups = ["direct_material", "direct_labor", "indirect_material", "indirect_labor", "items_depreciation", "utilities_cost", "other_foc"];
+
+          // Check each item that would produce a journal line: if amount > 0 and coa missing, collect it
+          for (const proc of updatedProcesses) {
+            for (const key of processGroups) {
+              if (!Array.isArray(proc[key])) continue;
+              for (const item of proc[key]) {
+                const amount = extractAmount(item, key);
+                if (amount > 0) {
+                  if (!item || !item.coa) {
+                    missing_coa.push({ process: proc.process_name || null, group: key, item_name: item?.item_name || item?.desc || null });
+                  }
+                }
+              }
+            }
+          }
+
+          // Validate WIP finished goods COA for debit
+          const debitAmount = round2(total_cogm_est_existing || 0);
+          if (debitAmount > 0 && !existingWip.coa_finished_goods) {
+            missing_coa.push({ process: null, group: "coa_finished_goods", item_name: null });
+          }
+
+          if (missing_coa.length > 0) {
+            // Do not create journal — return details so caller can fill missing COAs first
+            return res.status(200).json({ error: true, message: "Missing COA data — journaling skipped", missing_coa });
+          }
+
+          // Create main journal header
+          const { data: journal, error: journalError } = await supabase
+            .from("journal_entries")
+            .insert({
+              transaction_number: `WIP-${existingWip.id}`,
+              description: `Work In Process Capitalization`,
+              user_id: user.id,
+              entry_date: new Date().toISOString().split("T")[0],
+              created_at: new Date(),
+            })
+            .select()
+            .single();
+
+          if (journalError || !journal) {
+            console.error("Failed to create WIP journal entry:", journalError);
+            return res.status(500).json({ error: true, message: "Failed to create WIP journal entry: " + (journalError && journalError.message ? journalError.message : "unknown") });
+          }
+
+          // TEMPAT MENAMPUNG CREDIT & DEBIT
+          const journalLines = [];
+
+          // Helper push credit
+          const pushCredit = (coa, item_name, amount) => {
+            if (!amount || amount <= 0) return;
+            journalLines.push({
+              journal_entry_id: journal.id,
+              account_code: coa,
+              description: item_name || "",
+              debit: 0,
+              credit: round2(amount),
+              user_id: user.id,
+            });
+          };
+
+          // Build credits
+          for (const proc of updatedProcesses) {
+            for (const key of processGroups) {
+              if (!Array.isArray(proc[key])) continue;
+              for (const item of proc[key]) {
+                const amount = extractAmount(item, key);
+                pushCredit(item.coa, item.item_name || item.desc || "", amount);
+              }
+            }
+          }
+
+          // Push debit line to WIP (finished goods COA)
+          journalLines.push({
+            journal_entry_id: journal.id,
+            account_code: 130102, // WIP COA
+            description: "Work In Process",
+            debit: debitAmount,
+            credit: 0,
+            user_id: user.id,
+          });
+
+          // Insert journal lines
+          const { error: journalLinesErr } = await supabase.from("journal_entry_lines").insert(journalLines);
+          if (journalLinesErr) {
+            console.error("Failed to insert WIP journal entry lines:", journalLinesErr);
+            return res.status(500).json({ error: true, message: "Failed to insert WIP journal entry lines: " + journalLinesErr.message });
+          }
+
+          // Successful — return totals and created journal + lines (for Postman visibility)
+          return res.status(200).json({
+            error: false,
+            message: "Work In Process updated with actuals successfully",
+            data: {
+              id,
+              totals: {
+                total_other_foc_actual: round0(total_other_foc_actual),
+                total_direct_labor_actual: round0(total_direct_labor_actual),
+                total_indirect_labor_actual: round0(total_indirect_labor_actual),
+                total_utilities_cost_actual: round0(total_utilities_cost_actual),
+                total_direct_material_actual: round0(total_direct_material_actual),
+                total_indirect_material_actual: round0(total_indirect_material_actual),
+                total_items_depreciation_actual: round0(total_items_depreciation_actual),
+                total_foc_actual: round0(total_foc_actual),
+                total_cogm_actual: round0(total_cogm_actual),
+                prod_loss: round0(prod_loss),
+                nett_total_cogm: round0(nett_total_cogm),
+                cogm_per_unit_actual: round0(cogm_per_unit_actual),
+                cost_variance: round0(cost_variance),
+              },
+              journal,
+              journal_lines: journalLines,
             },
-          },
-        });
+          });
+        } catch (e) {
+          console.error("WIP journal creation error:", e);
+          return res.status(500).json({ error: true, message: "WIP journal creation error: " + (e.message || e) });
+        }
       }
 
       default:

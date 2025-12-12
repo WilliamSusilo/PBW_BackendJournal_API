@@ -99,6 +99,214 @@ module.exports = async (req, res) => {
 
   try {
     switch (action) {
+      // Delete Invoice, Shipment, Request, and Quotation Endpoint
+      case "deleteInvoice":
+      case "deleteShipment":
+      case "deleteRequest":
+      case "deleteQuotation": {
+        if (req.method !== "DELETE") {
+          return res.status(405).json({
+            error: true,
+            message: `Method not allowed. Use DELETE for ${action}.`,
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({
+            error: true,
+            message: "No authorization header provided",
+          });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({
+            error: true,
+            message: "Invalid or expired token",
+          });
+        }
+
+        // // Role permissions per case
+        // const permissionsMap = {
+        //   deleteInvoice: ["accounting", "finance", "manager", "admin"],
+        //   deleteShipment: ["warehousing", "logistics", "manager", "admin"],
+        //   deleteRequest: ["procurement", "manager", "admin"],
+        //   deleteQuotation: ["procurement", "manager", "admin"],
+        // };
+
+        // // Get user role from database
+        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+
+        // if (profileError || !userProfile) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: "Unable to fetch user role or user not found",
+        //   });
+        // }
+
+        // // Determine current case
+        // const currentCase = action;
+
+        // // Get allowed roles for current action
+        // const allowedRoles = permissionsMap[currentCase] || [];
+
+        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
+        //   return res.status(403).json({
+        //     error: true,
+        //     message: `Access denied. Your role (${userProfile.role}) is not authorized to perform ${currentCase}.`,
+        //   });
+        // }
+
+        const tableMap = {
+          deleteInvoice: "invoices_purchases",
+          deleteShipment: "shipments_purchases",
+          deleteRequest: "requests_purchases",
+          deleteQuotation: "quotations_purchases",
+        };
+
+        const table = tableMap[action];
+        const { id } = req.body;
+
+        if (!id) {
+          return res.status(400).json({
+            error: true,
+            message: "ID is required",
+          });
+        }
+
+        const { data: item, error: fetchError } = await supabase.from(table).select("id, status, number").eq("id", id).single();
+
+        console.log("Fetched item:", item, "Fetch error:", fetchError);
+
+        if (fetchError || !item || item.length === 0) {
+          return res.status(404).json({
+            error: true,
+            message: `${action.replace("delete", "")} not found or unauthorized`,
+          });
+        }
+
+        if (action === "deleteQuotation") {
+          if (item && item.status === "Completed") {
+            const { error: deleteError } = await supabase.from("offers_purchases").delete().eq("number", item.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+          }
+        } else if (action === "deleteRequest") {
+          if (item && item.status === "Completed") {
+            const { error: deleteError } = await supabase.from("orders_purchases").delete().eq("number", item.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+
+            const { data: billingOrders, error: billingError } = await supabase.from("billing_orders_purchases").select("id, number, status").eq("number", item.number);
+
+            console.log("Fetched billing orders:", billingOrders, "Billing error:", billingError);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing orders in purchases: " + billingError.message,
+              });
+            }
+
+            if (billingOrders[0].status === "Completed") {
+              return res.status(200).json({
+                error: true,
+                message: "Billing Order is already Completed",
+              });
+            }
+
+            if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
+              const billingOrderNumber = `ORD-${item.number}`;
+
+              const { error: deleteError } = await supabase.from("billing_orders_purchases").delete().eq("number", billingOrderNumber);
+
+              if (deleteError) {
+                return res.status(500).json({
+                  error: true,
+                  message: "Failed to delete related billing orders in purchases: " + deleteError.message,
+                });
+              }
+            }
+          }
+        } else if (action === "deleteInvoice") {
+          if (item && item.status === "Completed") {
+            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoices_purchases").select("id, number, status").eq("number", item.number);
+
+            console.log("Fetched billing invoices:", billingInvoices, "Billing error:", billingError);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing orders in purchases: " + billingError.message,
+              });
+            }
+
+            if (billingInvoices[0].status === "Completed" || billingInvoices[0].status === "Pending") {
+              return res.status(200).json({
+                error: true,
+                message: "Billing Invoice is already Completed/Already Paid in Installment",
+              });
+            }
+
+            if (billingInvoices && billingInvoices.length > 0 && billingInvoices[0].status === "Unpaid") {
+              const invoiceNumber = `INV-${item.number}`;
+
+              const { error: deleteError } = await supabase.from("billing_invoices_purchases").delete().eq("number", item.number);
+
+              if (deleteError) {
+                return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+              }
+
+              const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
+
+              if (deleteJournalError) {
+                return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
+              }
+            }
+          }
+        }
+
+        const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
+
+        if (deleteError) {
+          return res.status(500).json({
+            error: true,
+            message: `Failed to delete data: ${deleteError.message}`,
+          });
+        }
+
+        const { error: logErr } = await supabase.from("activity_logs").insert([
+          {
+            user_id: user.id,
+            user_email: user.email,
+            endpoint_name: `${action}`,
+            http_method: req.method,
+            deleted_at: new Date().toISOString(),
+          },
+        ]);
+
+        if (logErr) {
+          console.error("Failed to log activity:", logErr.message);
+        }
+
+        return res.status(200).json({
+          error: false,
+          message: `${action} deleted successfully`,
+        });
+      }
+
       // Add Billing Order Endpoint
       case "addNewBillingOrder": {
         if (method !== "POST") {
@@ -161,7 +369,7 @@ module.exports = async (req, res) => {
 
           // Check the installment options before continuing
           const { data: order, error: orderError } = await supabase
-            .from("orders")
+            .from("orders_purchases")
             .select("installment_option, tax_method, ppn_percentage, grand_total")
             .eq("id", id) // replace with the order ID you are processing
             .single();
@@ -245,7 +453,7 @@ module.exports = async (req, res) => {
           }
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("billing_order").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("billing_orders_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -383,7 +591,7 @@ module.exports = async (req, res) => {
             });
           }
 
-          const { error } = await supabase.from("billing_order").insert([
+          const { error } = await supabase.from("billing_orders_purchases").insert([
             {
               user_id: user.id,
               vendor_name,
@@ -567,7 +775,7 @@ module.exports = async (req, res) => {
           }
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("billing_invoice").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("billing_invoices_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -589,7 +797,7 @@ module.exports = async (req, res) => {
             });
           }
 
-          const { error } = await supabase.from("billing_invoice").insert([
+          const { error } = await supabase.from("billing_invoices_purchases").insert([
             {
               user_id: user.id,
               vendor_name,
@@ -825,7 +1033,7 @@ module.exports = async (req, res) => {
 
           // // Fetch latest invoice number
           // const { data: latestInvoice, error: fetchError } = await supabase
-          //   .from("invoices")
+          //   .from("invoices_purchases")
           //   .select("number")
           //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -848,7 +1056,7 @@ module.exports = async (req, res) => {
           // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("invoices").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("invoices_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -891,7 +1099,7 @@ module.exports = async (req, res) => {
           // Final grand total
           // const grand_total = dpp + ppn - pph;
 
-          const { error } = await supabase.from("invoices").insert([
+          const { error } = await supabase.from("invoices_purchases").insert([
             {
               user_id: user.id,
               type,
@@ -1084,7 +1292,7 @@ module.exports = async (req, res) => {
 
           // // Fetch latest offer number
           // const { data: latestOffer, error: fetchError } = await supabase
-          //   .from("offers")
+          //   .from("offers_purchases")
           //   .select("number")
           //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -1107,7 +1315,7 @@ module.exports = async (req, res) => {
           // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("offers").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("offers_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -1143,7 +1351,7 @@ module.exports = async (req, res) => {
           // Final grand total
           // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-          const { error } = await supabase.from("offers").insert([
+          const { error } = await supabase.from("offers_purchases").insert([
             {
               user_id: user.id,
               type,
@@ -1323,7 +1531,7 @@ module.exports = async (req, res) => {
 
           // // Fetch latest order number
           // const { data: latestOrder, error: fetchError } = await supabase
-          //   .from("orders")
+          //   .from("orders_purchases")
           //   .select("number")
           //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -1345,7 +1553,7 @@ module.exports = async (req, res) => {
           // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("orders").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("orders_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -1381,7 +1589,7 @@ module.exports = async (req, res) => {
           // Final grand total
           // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-          const { error } = await supabase.from("orders").insert([
+          const { error } = await supabase.from("orders_purchases").insert([
             {
               user_id: user.id,
               type,
@@ -1617,7 +1825,7 @@ module.exports = async (req, res) => {
 
           // // Fetch latest request number for the same prefix
           // const { data: latestRequests, error: fetchError } = await supabase
-          //   .from("requests")
+          //   .from("requests_purchases")
           //   .select("number")
           //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -1640,7 +1848,7 @@ module.exports = async (req, res) => {
           // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("requests").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("requests_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -1676,7 +1884,7 @@ module.exports = async (req, res) => {
           // Final grand total
           // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-          const { error } = await supabase.from("requests").insert([
+          const { error } = await supabase.from("requests_purchases").insert([
             {
               user_id: user.id,
               type,
@@ -1914,7 +2122,7 @@ module.exports = async (req, res) => {
 
           // // Fetch latest shipment number
           // const { data: latestShipment, error: fetchError } = await supabase
-          //   .from("shipments")
+          //   .from("shipments_purchases")
           //   .select("number")
           //   .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -1937,7 +2145,7 @@ module.exports = async (req, res) => {
           // const nextNumber = parseInt(`${prefix}${counter}`, 10);
 
           // Get all number columns from the table
-          const { data: allNumbers, error: fetchError } = await supabase.from("shipments").select("number");
+          const { data: allNumbers, error: fetchError } = await supabase.from("shipments_purchases").select("number");
 
           if (fetchError) {
             return res.status(500).json({
@@ -1973,7 +2181,7 @@ module.exports = async (req, res) => {
           // Final grand total
           // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-          const { error } = await supabase.from("shipments").insert([
+          const { error } = await supabase.from("shipments_purchases").insert([
             {
               user_id: user.id,
               type,
@@ -2456,7 +2664,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if billing exists and belongs to user
-          const { data: existingBilling, error: fetchError } = await supabase.from("billing_order").select("*").eq("id", id).single();
+          const { data: existingBilling, error: fetchError } = await supabase.from("billing_orders_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingBilling) {
             return res.status(404).json({
@@ -2484,7 +2692,7 @@ module.exports = async (req, res) => {
           };
 
           // Update billing
-          const { error: updateError } = await supabase.from("billing_order").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("billing_orders_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -2643,7 +2851,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if billing exists and belongs to user
-          const { data: existingBilling, error: fetchError } = await supabase.from("billing_invoice").select("*").eq("id", id).single();
+          const { data: existingBilling, error: fetchError } = await supabase.from("billing_invoices_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingBilling) {
             return res.status(404).json({
@@ -2681,7 +2889,7 @@ module.exports = async (req, res) => {
           };
 
           // Update billing
-          const { error: updateError } = await supabase.from("billing_invoice").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("billing_invoices_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -2883,7 +3091,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if invoice exists and belongs to user
-          const { data: existingInvoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).single();
+          const { data: existingInvoice, error: fetchError } = await supabase.from("invoices_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingInvoice) {
             return res.status(404).json({
@@ -2893,14 +3101,14 @@ module.exports = async (req, res) => {
           }
 
           if (existingInvoice && existingInvoice.status === "Completed") {
-            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoice").select("id, number, status").eq("number", existingInvoice.number);
+            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoices_purchases").select("id, number, status").eq("number", existingInvoice.number);
 
             console.log("Fetched billing invoices:", billingInvoices, "Billing error:", billingError);
 
             if (billingError) {
               return res.status(500).json({
                 error: true,
-                message: "Failed to check billing_order: " + billingError.message,
+                message: "Failed to check billing orders in purchases: " + billingError.message,
               });
             }
 
@@ -2922,13 +3130,13 @@ module.exports = async (req, res) => {
                 return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
               }
 
-              const { error: deleteError } = await supabase.from("billing_invoice").delete().eq("number", existingInvoice.number);
+              const { error: deleteError } = await supabase.from("billing_invoices_purchases").delete().eq("number", existingInvoice.number);
 
               if (deleteError) {
                 return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
               }
 
-              const { error: resetError } = await supabase.from("invoices").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+              const { error: resetError } = await supabase.from("invoices_purchases").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
 
               if (resetError) {
                 return res.status(500).json({ error: true, message: "Failed to reset invoice status: " + resetError.message });
@@ -2989,7 +3197,7 @@ module.exports = async (req, res) => {
           };
 
           // Update invoice
-          const { error: updateError } = await supabase.from("invoices").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("invoices_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -3163,7 +3371,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if offer exists and belongs to user
-          const { data: existingOffer, error: fetchError } = await supabase.from("offers").select("*").eq("id", id).single();
+          const { data: existingOffer, error: fetchError } = await supabase.from("offers_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingOffer) {
             return res.status(404).json({
@@ -3193,7 +3401,7 @@ module.exports = async (req, res) => {
           const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
           // First, let's verify the update conditions
-          const { data: verifyData, error: verifyError } = await supabase.from("offers").select("id").eq("id", id);
+          const { data: verifyData, error: verifyError } = await supabase.from("offers_purchases").select("id").eq("id", id);
 
           if (verifyError) {
             return res.status(500).json({
@@ -3227,7 +3435,7 @@ module.exports = async (req, res) => {
           };
 
           // Update offer
-          const { error: updateError } = await supabase.from("offers").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("offers_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -3401,7 +3609,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if order exists and belongs to user
-          const { data: existingOrder, error: fetchError } = await supabase.from("orders").select("*").eq("id", id).single();
+          const { data: existingOrder, error: fetchError } = await supabase.from("orders_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingOrder) {
             return res.status(404).json({
@@ -3445,7 +3653,7 @@ module.exports = async (req, res) => {
           };
 
           // Update order
-          const { error: updateError } = await supabase.from("orders").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("orders_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -3656,7 +3864,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if request exists and belongs to user
-          const { data: existingRequest, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).single();
+          const { data: existingRequest, error: fetchError } = await supabase.from("requests_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingRequest) {
             return res.status(404).json({
@@ -3666,12 +3874,12 @@ module.exports = async (req, res) => {
           }
 
           if (existingRequest && existingRequest.status === "Completed") {
-            const { data: billingOrders, error: billingError } = await supabase.from("billing_order").select("number, status").eq("number", existingRequest.number);
+            const { data: billingOrders, error: billingError } = await supabase.from("billing_orders_purchases").select("number, status").eq("number", existingRequest.number);
 
             if (billingError) {
               return res.status(500).json({
                 error: true,
-                message: "Failed to check billing_order: " + billingError.message,
+                message: "Failed to check billing orders in purchases: " + billingError.message,
               });
             }
 
@@ -3684,23 +3892,23 @@ module.exports = async (req, res) => {
 
             if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
               const billingOrderNumber = `ORD-${existingRequest.number}`;
-              const { error: deleteError } = await supabase.from("billing_order").delete().eq("number", billingOrderNumber);
+              const { error: deleteError } = await supabase.from("billing_orders_purchases").delete().eq("number", billingOrderNumber);
 
               if (deleteError) {
                 return res.status(500).json({
                   error: true,
-                  message: "Failed to delete related billing_order: " + deleteError.message,
+                  message: "Failed to delete related billing orders in purchases: " + deleteError.message,
                 });
               }
             }
 
-            const { error: deleteOrderError } = await supabase.from("orders").delete().eq("number", existingRequest.number);
+            const { error: deleteOrderError } = await supabase.from("orders_purchases").delete().eq("number", existingRequest.number);
 
             if (deleteOrderError) {
               return res.status(500).json({ error: true, message: "Failed to delete related order: " + deleteOrderError.message });
             }
 
-            const { error: resetError } = await supabase.from("requests").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+            const { error: resetError } = await supabase.from("requests_purchases").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
 
             if (resetError) {
               return res.status(500).json({ error: true, message: "Failed to reset request status: " + resetError.message });
@@ -3756,7 +3964,7 @@ module.exports = async (req, res) => {
           };
 
           // Update request
-          const { error: updateError } = await supabase.from("requests").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("requests_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -3956,7 +4164,7 @@ module.exports = async (req, res) => {
           }
 
           // Check if shipment exists and belongs to user
-          const { data: existingShipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).single();
+          const { data: existingShipment, error: fetchError } = await supabase.from("shipments_purchases").select("*").eq("id", id).single();
 
           if (fetchError || !existingShipment) {
             return res.status(404).json({
@@ -4014,7 +4222,7 @@ module.exports = async (req, res) => {
           };
 
           // Update shipment
-          const { error: updateError } = await supabase.from("shipments").update(updateData).eq("id", id).eq("user_id", user.id);
+          const { error: updateError } = await supabase.from("shipments_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
           if (updateError) {
             return res.status(500).json({
@@ -4024,7 +4232,7 @@ module.exports = async (req, res) => {
           }
 
           if (existingShipment && (existingShipment.status === "Completed" || existingShipment.status === "Received")) {
-            const { error: resetError } = await supabase.from("shipments").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+            const { error: resetError } = await supabase.from("shipments_purchases").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
 
             if (resetError) {
               return res.status(500).json({ error: true, message: "Failed to reset shipment status: " + resetError.message });
@@ -4224,7 +4432,7 @@ module.exports = async (req, res) => {
           }
 
           if (quotationData && quotationData.status === "Completed") {
-            const { error: deleteOfferError } = await supabase.from("offers").delete().eq("number", quotationData.number);
+            const { error: deleteOfferError } = await supabase.from("offers_purchases").delete().eq("number", quotationData.number);
 
             if (deleteOfferError) {
               return res.status(500).json({ error: true, message: "Failed to delete related offer: " + deleteOfferError.message });
@@ -4303,223 +4511,6 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Delete Billing Summary, Invoice, Shipment, Order, Offer, and Request Endpoint
-      case "deleteBillingOrder":
-      case "deleteBillingInvoice":
-      case "deleteInvoice":
-      case "deleteShipment":
-      case "deleteOrder":
-      case "deleteOffer":
-      case "deleteRequest":
-      case "deleteQuotation": {
-        if (req.method !== "DELETE") {
-          return res.status(405).json({
-            error: true,
-            message: `Method not allowed. Use DELETE for ${action}.`,
-          });
-        }
-
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({
-            error: true,
-            message: "No authorization header provided",
-          });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const supabase = getSupabaseWithToken(token);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          return res.status(401).json({
-            error: true,
-            message: "Invalid or expired token",
-          });
-        }
-
-        // // Role permissions per case
-        // const permissionsMap = {
-        //   deleteInvoice: ["accounting", "finance", "manager", "admin"],
-        //   deleteShipment: ["warehousing", "logistics", "manager", "admin"],
-        //   deleteOrder: ["procurement", "manager", "admin"],
-        //   deleteOffer: ["procurement", "manager", "admin"],
-        //   deleteRequest: ["procurement", "manager", "admin"],
-        // };
-
-        // // Get user role from database
-        // const { data: userProfile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-
-        // if (profileError || !userProfile) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: "Unable to fetch user role or user not found",
-        //   });
-        // }
-
-        // // Determine current case
-        // const currentCase = action;
-
-        // // Get allowed roles for current action
-        // const allowedRoles = permissionsMap[currentCase] || [];
-
-        // if (!allowedRoles.includes(userProfile.role.toLowerCase())) {
-        //   return res.status(403).json({
-        //     error: true,
-        //     message: `Access denied. Your role (${userProfile.role}) is not authorized to perform ${currentCase}.`,
-        //   });
-        // }
-
-        const tableMap = {
-          deleteBillingOrder: "billing_order",
-          deleteBillingInvoice: "billing_invoice",
-          deleteInvoice: "invoices",
-          deleteShipment: "shipments",
-          deleteOrder: "orders",
-          deleteOffer: "offers",
-          deleteRequest: "requests",
-          deleteQuotation: "quotations_purchases",
-        };
-
-        const table = tableMap[action];
-        const { id } = req.body;
-
-        if (!id) {
-          return res.status(400).json({
-            error: true,
-            message: "ID is required",
-          });
-        }
-
-        const { data: item, error: fetchError } = await supabase.from(table).select("id, status, number").eq("id", id).single();
-
-        console.log("Fetched item:", item, "Fetch error:", fetchError);
-
-        if (fetchError || !item || item.length === 0) {
-          return res.status(404).json({
-            error: true,
-            message: `${action.replace("delete", "")} not found or unauthorized`,
-          });
-        }
-
-        if (action === "deleteQuotation") {
-          if (item && item.status === "Completed") {
-            const { error: deleteError } = await supabase.from("offers").delete().eq("number", item.number);
-
-            if (deleteError) {
-              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
-            }
-          }
-        } else if (action === "deleteRequest") {
-          if (item && item.status === "Completed") {
-            const { error: deleteError } = await supabase.from("orders").delete().eq("number", item.number);
-
-            if (deleteError) {
-              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
-            }
-
-            const { data: billingOrders, error: billingError } = await supabase.from("billing_order").select("id, number, status").eq("number", item.number);
-
-            console.log("Fetched billing orders:", billingOrders, "Billing error:", billingError);
-
-            if (billingError) {
-              return res.status(500).json({
-                error: true,
-                message: "Failed to check billing_order: " + billingError.message,
-              });
-            }
-
-            if (billingOrders[0].status === "Completed") {
-              return res.status(200).json({
-                error: true,
-                message: "Billing Order is already Completed",
-              });
-            }
-
-            if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
-              const billingOrderNumber = `ORD-${item.number}`;
-
-              const { error: deleteError } = await supabase.from("billing_order").delete().eq("number", billingOrderNumber);
-
-              if (deleteError) {
-                return res.status(500).json({
-                  error: true,
-                  message: "Failed to delete related billing_order: " + deleteError.message,
-                });
-              }
-            }
-          }
-        } else if (action === "deleteInvoice") {
-          if (item && item.status === "Completed") {
-            const { data: billingInvoices, error: billingError } = await supabase.from("billing_invoice").select("id, number, status").eq("number", item.number);
-
-            console.log("Fetched billing invoices:", billingInvoices, "Billing error:", billingError);
-
-            if (billingError) {
-              return res.status(500).json({
-                error: true,
-                message: "Failed to check billing_order: " + billingError.message,
-              });
-            }
-
-            if (billingInvoices[0].status === "Completed" || billingInvoices[0].status === "Pending") {
-              return res.status(200).json({
-                error: true,
-                message: "Billing Invoice is already Completed/Already Paid in Installment",
-              });
-            }
-
-            if (billingInvoices && billingInvoices.length > 0 && billingInvoices[0].status === "Unpaid") {
-              const invoiceNumber = `INV-${item.number}`;
-
-              const { error: deleteError } = await supabase.from("billing_invoice").delete().eq("number", item.number);
-
-              if (deleteError) {
-                return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
-              }
-
-              const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
-
-              if (deleteJournalError) {
-                return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
-              }
-            }
-          }
-        }
-
-        const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
-
-        if (deleteError) {
-          return res.status(500).json({
-            error: true,
-            message: `Failed to delete data: ${deleteError.message}`,
-          });
-        }
-
-        const { error: logErr } = await supabase.from("activity_logs").insert([
-          {
-            user_id: user.id,
-            user_email: user.email,
-            endpoint_name: `${action}`,
-            http_method: req.method,
-            deleted_at: new Date().toISOString(),
-          },
-        ]);
-
-        if (logErr) {
-          console.error("Failed to log activity:", logErr.message);
-        }
-
-        return res.status(200).json({
-          error: false,
-          message: `${action} deleted successfully`,
-        });
-      }
-
       // Get Billing Order Endpoint
       case "getBillingOrder": {
         if (method !== "GET") {
@@ -4569,7 +4560,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("billing_order").select("*").order("order_date", { ascending: false }).range(from, to);
+        let query = supabase.from("billing_orders_purchases").select("*").order("order_date", { ascending: false }).range(from, to);
 
         if (search) {
           const stringColumns = ["vendor_name"];
@@ -4608,7 +4599,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch billing summary: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch billing order: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -4667,7 +4658,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("billing_invoice").select("*").order("invoice_date", { ascending: false }).range(from, to);
+        let query = supabase.from("billing_invoices_purchases").select("*").order("invoice_date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -4767,7 +4758,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("invoices").select("*").order("date", { ascending: false }).range(from, to);
+        let query = supabase.from("invoices_purchases").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -4850,7 +4841,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch invoices in purchases: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -4909,7 +4900,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("shipments").select("*").order("date", { ascending: false }).range(from, to);
+        let query = supabase.from("shipments_purchases").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -4999,7 +4990,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch shipments: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch shipments in purchases: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -5058,7 +5049,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("orders").select("*").order("date", { ascending: false }).range(from, to);
+        let query = supabase.from("orders_purchases").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -5135,7 +5126,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch orders: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch orders in purchases: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -5194,7 +5185,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("offers").select("*").order("date", { ascending: false }).range(from, to);
+        let query = supabase.from("offers_purchases").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -5272,7 +5263,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch offers: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch offers in purchases: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -5331,7 +5322,7 @@ module.exports = async (req, res) => {
         const from = (pagination - 1) * limitValue;
         const to = from + limitValue - 1;
 
-        let query = supabase.from("requests").select("*").order("date", { ascending: false }).range(from, to);
+        let query = supabase.from("requests_purchases").select("*").order("date", { ascending: false }).range(from, to);
 
         if (status) query = query.eq("status", status);
 
@@ -5407,7 +5398,7 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) return res.status(500).json({ error: true, message: "Failed to fetch requests: " + error.message });
+        if (error) return res.status(500).json({ error: true, message: "Failed to fetch requests in purchases: " + error.message });
 
         const formattedData = data.map((item) => ({
           ...item,
@@ -5461,7 +5452,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("billing_invoice").select("*").eq("status", "Pending");
+        let query = supabase.from("billing_invoices_purchases").select("*").eq("status", "Pending");
         query = query.order("invoice_date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -5522,7 +5513,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("invoices").select("*").eq("status", "Pending");
+        let query = supabase.from("invoices_purchases").select("*").eq("status", "Pending");
         query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -5583,7 +5574,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("shipments").select("*").in("status", ["Pending", "Received"]);
+        let query = supabase.from("shipments_purchases").select("*").in("status", ["Pending", "Received"]);
         query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -5644,7 +5635,7 @@ module.exports = async (req, res) => {
 
         const limit = parseInt(req.query.limit) || 10;
 
-        let query = supabase.from("requests").select("*").eq("status", "Pending");
+        let query = supabase.from("requests_purchases").select("*").eq("status", "Pending");
         query = query.order("date", { ascending: false }).limit(limit);
 
         const { data, error } = await query;
@@ -5777,7 +5768,7 @@ module.exports = async (req, res) => {
         }
         const billingId = String(id);
 
-        const { data: billing, error: billingError } = await supabase.from("billing_invoice").select("*").eq("id", id).in("status", ["Pending", "pending", "Unpaid", "unpaid"]).single();
+        const { data: billing, error: billingError } = await supabase.from("billing_invoices_purchases").select("*").eq("id", id).in("status", ["Pending", "pending", "Unpaid", "unpaid"]).single();
 
         if (billingError || !billing) {
           return res.status(404).json({ error: true, message: "Billing not found or already completed/rejected" });
@@ -6023,7 +6014,7 @@ module.exports = async (req, res) => {
 
         // Simpan kembali data ke database (payment_amount, installment_count, payment_date, dan remain_balance)
         const { error: updateBillingError } = await supabase
-          .from("billing_invoice")
+          .from("billing_invoices_purchases")
           .update({
             payment_amount: paymentAmount,
             installment_count: installment_count,
@@ -6301,7 +6292,7 @@ module.exports = async (req, res) => {
         }
 
         // Update status di database
-        const { error: updateStatusError } = await supabase.from("billing_invoice").update({ status: newStatus }).eq("id", billing.id);
+        const { error: updateStatusError } = await supabase.from("billing_invoices_purchases").update({ status: newStatus }).eq("id", billing.id);
 
         if (updateStatusError) {
           return res.status(500).json({
@@ -6390,7 +6381,7 @@ module.exports = async (req, res) => {
         const billingOrderId = String(id);
 
         // Ambil billing order dari DB
-        const { data: billingOrder, error: billingOrderError } = await supabase.from("billing_order").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: billingOrder, error: billingOrderError } = await supabase.from("billing_orders_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (billingOrderError || !billingOrder) {
           return res.status(404).json({ error: true, message: "Billing Order not found or already completed" });
@@ -6401,7 +6392,7 @@ module.exports = async (req, res) => {
           .from("journal_entries")
           .insert({
             transaction_number: `ORD-${billingOrder.number}`,
-            description: `Journal for Billing Order ${billingOrderId}`,
+            description: `Journal for Billing Order Purchases ${billingOrderId}`,
             user_id: user.id,
             entry_date: new Date().toISOString().split("T")[0],
             created_at: new Date(),
@@ -6461,7 +6452,7 @@ module.exports = async (req, res) => {
         }
 
         // Update status
-        const { error: updateStatusError } = await supabase.from("billing_order").update({ status: "Completed" }).eq("id", id);
+        const { error: updateStatusError } = await supabase.from("billing_orders_purchases").update({ status: "Completed" }).eq("id", id);
 
         if (updateStatusError) {
           return res.status(500).json({
@@ -6470,9 +6461,9 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Jika ada billing_invoice yang terkait dengan nomor ini, catat pembayaran (down payment)
+        // Jika ada billing_invoices_purchases yang terkait dengan nomor ini, catat pembayaran (down payment)
         try {
-          const { data: relatedBillingInv, error: relatedBillingErr } = await supabase.from("billing_invoice").select("*").eq("number", billingOrder.number).maybeSingle();
+          const { data: relatedBillingInv, error: relatedBillingErr } = await supabase.from("billing_invoices_purchases").select("*").eq("number", billingOrder.number).maybeSingle();
 
           if (!relatedBillingErr && relatedBillingInv) {
             // Tentukan nilai yang dibayarkan untuk billing order ini
@@ -6494,14 +6485,14 @@ module.exports = async (req, res) => {
 
             const newStatus = newRemain <= 0 ? "Completed" : totalPaid > 0 ? "Pending" : relatedBillingInv.status || "Unpaid";
 
-            const { error: updateBillingInvErr } = await supabase.from("billing_invoice").update({ payment_amount: existingPayments, remain_balance: newRemain, status: newStatus }).eq("id", relatedBillingInv.id);
+            const { error: updateBillingInvErr } = await supabase.from("billing_invoices_purchases").update({ payment_amount: existingPayments, remain_balance: newRemain, status: newStatus }).eq("id", relatedBillingInv.id);
 
             if (updateBillingInvErr) {
-              console.error("Failed to update related billing_invoice with down payment:", updateBillingInvErr.message);
+              console.error("Failed to update related billing invoices in purchases with down payment:", updateBillingInvErr.message);
             }
           }
         } catch (e) {
-          console.error("Error while applying billing order payment to billing_invoice:", e.message || e);
+          console.error("Error while applying billing order payment to billing invoices in purchases:", e.message || e);
         }
 
         const { error: logErr } = await supabase.from("activity_logs").insert([
@@ -6585,7 +6576,7 @@ module.exports = async (req, res) => {
         const invoiceId = String(id);
 
         // 1. Ambil invoice dari DB
-        const { data: invoice, error: invoiceError } = await supabase.from("invoices").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: invoice, error: invoiceError } = await supabase.from("invoices_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (invoiceError || !invoice) {
           return res.status(404).json({ error: true, message: "Invoice not found or already completed/rejected" });
@@ -6864,10 +6855,10 @@ module.exports = async (req, res) => {
         });
 
         // 6. Kredit: Installment - Vendor
-        const { data: sameNumberOrders, error: sameNumberError } = await supabase.from("billing_order").select("id, installment_name, installment_COA, installment_amount").eq("number", number);
+        const { data: sameNumberOrders, error: sameNumberError } = await supabase.from("billing_orders_purchases").select("id, installment_name, installment_COA, installment_amount").eq("number", number);
 
         if (sameNumberError) {
-          return res.status(500).json({ error: true, message: "Failed to check billing_order by number" });
+          return res.status(500).json({ error: true, message: "Failed to check billing orders in purchases by number" });
         }
 
         if (sameNumberOrders && sameNumberOrders.length > 0) {
@@ -6894,16 +6885,16 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Check billing_order for any down-payments (same invoice number)
+        // Check billing orders in purchases for any down-payments (same invoice number)
         let billOrderAmount = 0;
         try {
-          const { data: ordersWithSameNumber, error: ordersErr } = await supabase.from("billing_order").select("paid_amount").eq("number", invoice.number);
+          const { data: ordersWithSameNumber, error: ordersErr } = await supabase.from("billing_orders_purchases").select("paid_amount").eq("number", invoice.number);
 
           if (!ordersErr && Array.isArray(ordersWithSameNumber) && ordersWithSameNumber.length > 0) {
             billOrderAmount = ordersWithSameNumber.reduce((sum, r) => sum + (Number(r.paid_amount) || 0), 0);
           }
         } catch (e) {
-          console.error("Error checking billing_order for same number:", e.message || e);
+          console.error("Error checking billing orders in purchases for same number:", e.message || e);
           billOrderAmount = 0;
         }
 
@@ -6911,13 +6902,13 @@ module.exports = async (req, res) => {
         const originalGrand = Number(invoice.grand_total || 0);
         const adjustedGrand = Math.round(originalGrand - billOrderAmount);
 
-        const { error } = await supabase.from("billing_invoice").insert([
+        const { error } = await supabase.from("billing_invoices_purchases").insert([
           {
             user_id: user.id,
             vendor_name: invoice.vendor_name,
             invoice_date: invoice.date,
             terms: invoice.terms,
-            // store the grand_total after deducting any billing_order paid amounts
+            // store the grand_total after deducting any billing orders in purchases paid amounts
             grand_total: adjustedGrand,
             items: invoice.items,
             type: "Billing Invoice",
@@ -6944,7 +6935,7 @@ module.exports = async (req, res) => {
           });
         }
 
-        const { data: updated, error: updateStatusError } = await supabase.from("invoices").update({ status: "Completed" }).eq("id", invoiceId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("invoices_purchases").update({ status: "Completed" }).eq("id", invoiceId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
@@ -7133,7 +7124,7 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get shipment with status "Pending"
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
+        const { data: shipment, error: fetchError } = await supabase.from("shipments_purchases").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
 
         if (fetchError || !shipment) {
           return res.status(404).json({ error: true, message: "Shipment not found or already completed/rejected" });
@@ -7156,7 +7147,7 @@ module.exports = async (req, res) => {
         }
 
         // Update status di database
-        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: newStatus }).eq("id", shipmentId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments_purchases").update({ status: newStatus }).eq("id", shipmentId).select();
 
         if (updateStatusError) {
           return res.status(500).json({
@@ -7173,7 +7164,7 @@ module.exports = async (req, res) => {
         // const prefixInt = parseInt(prefix + "0", 10);
         // const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        // const { data: latestInvoice, error: invoiceError } = await supabase.from("invoices").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // const { data: latestInvoice, error: invoiceError } = await supabase.from("invoices_purchases").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         // if (invoiceError) {
         //   return res.status(500).json({
@@ -7281,7 +7272,7 @@ module.exports = async (req, res) => {
         }
 
         // Get request with status "Pending"
-        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: request, error: fetchError } = await supabase.from("requests_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !request) {
           return res.status(404).json({ error: true, message: "Request not found or already completed/rejected" });
@@ -7297,7 +7288,7 @@ module.exports = async (req, res) => {
         // const prefixInt = parseInt(prefix + "0", 10);
         // const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        // const { data: latestOrder, error: orderError } = await supabase.from("orders").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // const { data: latestOrder, error: orderError } = await supabase.from("orders_purchases").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         // if (orderError) {
         //   return res.status(500).json({
@@ -7327,8 +7318,8 @@ module.exports = async (req, res) => {
 
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // Insert to orders
-        const { error: insertError } = await supabase.from("orders").insert([
+        // Insert to orders in purchases
+        const { error: insertError } = await supabase.from("orders_purchases").insert([
           {
             user_id: user.id,
             type: "Order",
@@ -7364,7 +7355,7 @@ module.exports = async (req, res) => {
         }
 
         if (request.installment_amount !== null && request.installment_amount !== 0) {
-          const { error } = await supabase.from("billing_order").insert([
+          const { error } = await supabase.from("billing_orders_purchases").insert([
             {
               user_id: user.id,
               vendor_name: request.vendor_name,
@@ -7381,7 +7372,7 @@ module.exports = async (req, res) => {
           if (error) {
             return res.status(500).json({
               error: true,
-              message: "Failed to create billing summary: " + error.message,
+              message: "Failed to create billing order: " + error.message,
             });
           }
 
@@ -7401,7 +7392,7 @@ module.exports = async (req, res) => {
         }
 
         // Update the request status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Completed" }).eq("id", requestId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("requests_purchases").update({ status: "Completed" }).eq("id", requestId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
@@ -7501,7 +7492,7 @@ module.exports = async (req, res) => {
         // const prefixInt = parseInt(prefix + "0", 10);
         // const nextPrefixInt = parseInt(prefix + "9999", 10);
 
-        // const { data: latestOffer, error: offerError } = await supabase.from("offers").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
+        // const { data: latestOffer, error: offerError } = await supabase.from("offers_purchases").select("number").gte("number", prefixInt).lte("number", nextPrefixInt).order("number", { ascending: false }).limit(1);
 
         // if (offerError) {
         //   return res.status(500).json({
@@ -7531,8 +7522,8 @@ module.exports = async (req, res) => {
 
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        // Insert to offers
-        const { error: insertError } = await supabase.from("offers").insert([
+        // Insert to offers in purchases
+        const { error: insertError } = await supabase.from("offers_purchases").insert([
           {
             user_id: user.id,
             number: quotation.number,
@@ -7651,7 +7642,7 @@ module.exports = async (req, res) => {
         }
 
         // 1. Get billing with status "Pending"
-        const { data: billing, error: fetchError } = await supabase.from("billing_invoice").select("*").eq("id", id).ilike("status", "pending").single();
+        const { data: billing, error: fetchError } = await supabase.from("billing_invoices_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !billing) {
           return res.status(404).json({ error: true, message: "Billing not found or already completed/rejected" });
@@ -7660,7 +7651,7 @@ module.exports = async (req, res) => {
         const billingId = String(id);
 
         // 2. Update the billing status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("billing_invoice").update({ status: "Rejected" }).eq("id", billingId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("billing_invoices_purchases").update({ status: "Rejected" }).eq("id", billingId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update billing status: " + updateStatusError.message });
@@ -7743,8 +7734,8 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Invoice ID" });
         }
 
-        // 1. Get invoices with status "Pending"
-        const { data: invoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).ilike("status", "pending").single();
+        // 1. Get invoices in purchases with status "Pending"
+        const { data: invoice, error: fetchError } = await supabase.from("invoices_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !invoice) {
           return res.status(404).json({ error: true, message: "Invoice not found or already completed/rejected" });
@@ -7753,7 +7744,7 @@ module.exports = async (req, res) => {
         const invoiceId = String(id);
 
         // 2. Update the invoice status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("invoices").update({ status: "Rejected" }).eq("id", invoiceId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("invoices_purchases").update({ status: "Rejected" }).eq("id", invoiceId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update invoice status: " + updateStatusError.message });
@@ -7836,8 +7827,8 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Shipment ID" });
         }
 
-        // 1. Get shipments with status "Pending"
-        const { data: shipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
+        // 1. Get shipments in purchases with status "Pending"
+        const { data: shipment, error: fetchError } = await supabase.from("shipments_purchases").select("*").eq("id", id).in("status", ["Pending", "pending", "Received", "received"]).single();
 
         if (fetchError || !shipment) {
           return res.status(404).json({ error: true, message: "Shipment not found or its status does not allow further updates" });
@@ -7846,7 +7837,7 @@ module.exports = async (req, res) => {
         const shipmentId = String(id);
 
         // 2. Update the shipment status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("shipments").update({ status: "Rejected" }).eq("id", shipmentId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("shipments_purchases").update({ status: "Rejected" }).eq("id", shipmentId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update shipment status: " + updateStatusError.message });
@@ -7929,8 +7920,8 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing Request ID" });
         }
 
-        // 1. Get requests with status "Pending"
-        const { data: request, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).ilike("status", "pending").single();
+        // 1. Get requests in purchases with status "Pending"
+        const { data: request, error: fetchError } = await supabase.from("requests_purchases").select("*").eq("id", id).ilike("status", "pending").single();
 
         if (fetchError || !request) {
           return res.status(404).json({ error: true, message: "Request not found or already completed/rejected" });
@@ -7939,7 +7930,7 @@ module.exports = async (req, res) => {
         const requestId = String(id);
 
         // 2. Update the request status to "Completed"
-        const { data: updated, error: updateStatusError } = await supabase.from("requests").update({ status: "Rejected" }).eq("id", requestId).select();
+        const { data: updated, error: updateStatusError } = await supabase.from("requests_purchases").update({ status: "Rejected" }).eq("id", requestId).select();
 
         if (updateStatusError) {
           return res.status(500).json({ error: true, message: "Failed to update request status: " + updateStatusError.message });
@@ -8096,11 +8087,11 @@ module.exports = async (req, res) => {
         const thirtyDaysAgo = new Date(today);
         thirtyDaysAgo.setDate(today.getDate() - 30);
 
-        // Fetch all invoices
-        const { data: invoices, error: fetchError } = await supabase.from("invoices").select("grand_total, status, due_date");
+        // Fetch all invoices in purchases
+        const { data: invoices, error: fetchError } = await supabase.from("invoices_purchases").select("grand_total, status, due_date");
 
         if (fetchError) {
-          return res.status(500).json({ error: true, message: "Failed to fetch invoices: " + fetchError.message });
+          return res.status(500).json({ error: true, message: "Failed to fetch invoices in purchases: " + fetchError.message });
         }
 
         // Calculate totals
@@ -8324,7 +8315,7 @@ module.exports = async (req, res) => {
 
         // Fetch latest invoice number
         const { data: latestInvoice, error: fetchError } = await supabase
-          .from("invoices")
+          .from("invoices_purchases")
           .select("number")
           .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -8367,7 +8358,7 @@ module.exports = async (req, res) => {
         // Final grand total
         // const grand_total = dpp + ppn - pph;
 
-        const { error } = await supabase.from("invoices").insert([
+        const { error } = await supabase.from("invoices_purchases").insert([
           {
             user_id: user.id,
             type,
@@ -8463,7 +8454,7 @@ module.exports = async (req, res) => {
 
         // Fetch latest offer number
         const { data: latestOffer, error: fetchError } = await supabase
-          .from("offers")
+          .from("offers_purchases")
           .select("number")
           .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -8499,7 +8490,7 @@ module.exports = async (req, res) => {
         // Final grand total
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        const { error } = await supabase.from("offers").insert([
+        const { error } = await supabase.from("offers_purchases").insert([
           {
             user_id: user.id,
             type,
@@ -8589,7 +8580,7 @@ module.exports = async (req, res) => {
 
         // Fetch latest order number
         const { data: latestOrder, error: fetchError } = await supabase
-          .from("orders")
+          .from("orders_purchases")
           .select("number")
           .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -8624,7 +8615,7 @@ module.exports = async (req, res) => {
         // Final grand total
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        const { error } = await supabase.from("orders").insert([
+        const { error } = await supabase.from("orders_purchases").insert([
           {
             user_id: user.id,
             type,
@@ -8713,7 +8704,7 @@ module.exports = async (req, res) => {
 
         // Fetch latest request number for the same prefix
         const { data: latestRequests, error: fetchError } = await supabase
-          .from("requests")
+          .from("requests_purchases")
           .select("number")
           .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -8749,7 +8740,7 @@ module.exports = async (req, res) => {
         // Final grand total
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        const { error } = await supabase.from("requests").insert([
+        const { error } = await supabase.from("requests_purchases").insert([
           {
             user_id: user.id,
             type,
@@ -8839,7 +8830,7 @@ module.exports = async (req, res) => {
 
         // Fetch latest shipment number
         const { data: latestShipment, error: fetchError } = await supabase
-          .from("shipments")
+          .from("shipments_purchases")
           .select("number")
           .gte("date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -8875,7 +8866,7 @@ module.exports = async (req, res) => {
         // Final grand total
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        const { error } = await supabase.from("shipments").insert([
+        const { error } = await supabase.from("shipments_purchases").insert([
           {
             user_id: user.id,
             type,
@@ -8958,7 +8949,7 @@ module.exports = async (req, res) => {
         }
 
         // Check if invoice exists and belongs to user
-        const { data: existingInvoice, error: fetchError } = await supabase.from("invoices").select("*").eq("id", id).single();
+        const { data: existingInvoice, error: fetchError } = await supabase.from("invoices_purchases").select("*").eq("id", id).single();
 
         if (fetchError || !existingInvoice) {
           return res.status(404).json({
@@ -9010,7 +9001,7 @@ module.exports = async (req, res) => {
         };
 
         // Update invoice
-        const { error: updateError } = await supabase.from("invoices").update(updateData).eq("id", id).eq("user_id", user.id);
+        const { error: updateError } = await supabase.from("invoices_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
         if (updateError) {
           return res.status(500).json({
@@ -9078,7 +9069,7 @@ module.exports = async (req, res) => {
         }
 
         // Check if offer exists and belongs to user
-        const { data: existingOffer, error: fetchError } = await supabase.from("offers").select("*").eq("id", id).single();
+        const { data: existingOffer, error: fetchError } = await supabase.from("offers_purchases").select("*").eq("id", id).single();
 
         if (fetchError || !existingOffer) {
           return res.status(404).json({
@@ -9108,7 +9099,7 @@ module.exports = async (req, res) => {
         const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
         // First, let's verify the update conditions
-        const { data: verifyData, error: verifyError } = await supabase.from("offers").select("id").eq("id", id);
+        const { data: verifyData, error: verifyError } = await supabase.from("offers_purchases").select("id").eq("id", id);
 
         if (verifyError) {
           return res.status(500).json({
@@ -9163,7 +9154,7 @@ module.exports = async (req, res) => {
         }
 
         // After update, fetch the updated record
-        const { data: updatedOffer, error: fetchUpdatedError } = await supabase.from("offers").select("*").eq("id", id).single();
+        const { data: updatedOffer, error: fetchUpdatedError } = await supabase.from("offers_purchases").select("*").eq("id", id).single();
 
         if (fetchUpdatedError) {
           return res.status(500).json({
@@ -9239,7 +9230,7 @@ module.exports = async (req, res) => {
         }
 
         // Check if order exists and belongs to user
-        const { data: existingOrder, error: fetchError } = await supabase.from("orders").select("*").eq("id", id).single();
+        const { data: existingOrder, error: fetchError } = await supabase.from("orders_purchases").select("*").eq("id", id).single();
 
         if (fetchError || !existingOrder) {
           return res.status(404).json({
@@ -9281,7 +9272,7 @@ module.exports = async (req, res) => {
         };
 
         // Update order
-        const { error: updateError } = await supabase.from("orders").update(updateData).eq("id", id).eq("user_id", user.id);
+        const { error: updateError } = await supabase.from("orders_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
         if (updateError) {
           return res.status(500).json({
@@ -9349,7 +9340,7 @@ module.exports = async (req, res) => {
         }
 
         // Check if request exists and belongs to user
-        const { data: existingRequest, error: fetchError } = await supabase.from("requests").select("*").eq("id", id).single();
+        const { data: existingRequest, error: fetchError } = await supabase.from("requests_purchases").select("*").eq("id", id).single();
 
         if (fetchError || !existingRequest) {
           return res.status(404).json({
@@ -9392,7 +9383,7 @@ module.exports = async (req, res) => {
         };
 
         // Update request
-        const { error: updateError } = await supabase.from("requests").update(updateData).eq("id", id).eq("user_id", user.id);
+        const { error: updateError } = await supabase.from("requests_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
         if (updateError) {
           return res.status(500).json({
@@ -9460,7 +9451,7 @@ module.exports = async (req, res) => {
         }
 
         // Check if shipment exists and belongs to user
-        const { data: existingShipment, error: fetchError } = await supabase.from("shipments").select("*").eq("id", id).single();
+        const { data: existingShipment, error: fetchError } = await supabase.from("shipments_purchases").select("*").eq("id", id).single();
 
         if (fetchError || !existingShipment) {
           return res.status(404).json({
@@ -9504,7 +9495,7 @@ module.exports = async (req, res) => {
         };
 
         // Update shipment
-        const { error: updateError } = await supabase.from("shipments").update(updateData).eq("id", id).eq("user_id", user.id);
+        const { error: updateError } = await supabase.from("shipments_purchases").update(updateData).eq("id", id).eq("user_id", user.id);
 
         if (updateError) {
           return res.status(500).json({
