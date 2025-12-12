@@ -5412,7 +5412,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((sale) => ({
           ...sale,
-          number: `Invoice #${String(sale.number).padStart(5, "0")}`,
+          number: `${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -5501,7 +5501,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((sale) => ({
           ...sale,
-          number: `Shipment #${String(sale.number).padStart(5, "0")}`,
+          number: `${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -5777,7 +5777,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((sale) => ({
           ...sale,
-          number: `Order #${String(sale.number).padStart(5, "0")}`,
+          number: `${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -5866,7 +5866,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((sale) => ({
           ...sale,
-          number: `Quotation #${String(sale.number).padStart(5, "0")}`,
+          number: `${String(sale.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
@@ -5961,7 +5961,7 @@ module.exports = async (req, res) => {
 
         const formattedData = data.map((item) => ({
           ...item,
-          number: `${"OFR"}-${String(item.number).padStart(5, "0")}`,
+          number: `${String(item.number).padStart(5, "0")}`,
         }));
 
         return res.status(200).json({ error: false, data: formattedData });
