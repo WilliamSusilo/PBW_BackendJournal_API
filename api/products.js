@@ -1992,6 +1992,98 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data });
       }
 
+      case "getStockTable": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getStockTable." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const filterCategory = req.query.category;
+        const search = req.query.search?.toLowerCase();
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 10;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        let query = supabase.from("stock").select("*").order("created_at", { ascending: false }).range(from, to);
+
+        if (filterCategory) {
+          query = query.eq("category", filterCategory);
+        }
+
+        if (search) {
+          const stringColumns = ["name", "sku", "category", "unit", "warehouses"];
+          const intColumns = ["minimum_stock"];
+
+          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+          const eqIntConditions = [];
+
+          if (!isNaN(search) && Number.isInteger(Number(search))) {
+            eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
+          }
+
+          const searchConditions = [...ilikeConditions, ...eqIntConditions].join(",");
+          query = query.or(searchConditions);
+        }
+
+        const { data: stocks, error: fetchError } = await query;
+
+        if (fetchError) {
+          return res.status(500).json({ error: true, message: `Failed to fetch stock: ${fetchError.message}` });
+        }
+
+        const skus = (stocks || []).map((s) => s.sku).filter(Boolean);
+        const inventoryMap = {};
+
+        if (skus.length > 0) {
+          const { data: inventoryRows, error: inventoryError } = await supabase.from("inventory").select("stock_SKU, total_cogs, total_qty, total_stock").in("stock_SKU", skus);
+
+          if (inventoryError) {
+            return res.status(500).json({ error: true, message: `Failed to fetch inventory: ${inventoryError.message}` });
+          }
+
+          if (inventoryRows) {
+            for (const row of inventoryRows) {
+              const key = row.stock_SKU;
+              if (!inventoryMap[key]) {
+                inventoryMap[key] = { total_cogs: 0, total_qty: 0, total_stock: 0 };
+              }
+              inventoryMap[key].total_cogs += Number(row.total_cogs) || 0;
+              inventoryMap[key].total_qty += Number(row.total_qty) || 0;
+              inventoryMap[key].total_stock += Number(row.total_stock) || 0;
+            }
+          }
+        }
+
+        const mergedData = (stocks || []).map((stock) => {
+          const inv = inventoryMap[stock.sku] || { total_cogs: 0, total_qty: 0, total_stock: 0 };
+          return {
+            ...stock,
+            total_cogs: inv.total_cogs,
+            total_qty: inv.total_qty,
+            total_stock: inv.total_stock,
+          };
+        });
+
+        return res.status(200).json({ error: false, data: mergedData });
+      }
+
       // Get All Products, Warehouses Endpoint
       case "getStocks":
       case "getProducts":
