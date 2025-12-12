@@ -2052,7 +2052,7 @@ module.exports = async (req, res) => {
         const inventoryMap = {};
 
         if (skus.length > 0) {
-          const { data: inventoryRows, error: inventoryError } = await supabase.from("inventory").select("stock_SKU, total_cogs, total_qty, total_stock").in("stock_SKU", skus);
+          const { data: inventoryRows, error: inventoryError } = await supabase.from("inventory").select("stock_SKU, avg_per_unit, total_qty, total_stock").in("stock_SKU", skus);
 
           if (inventoryError) {
             return res.status(500).json({ error: true, message: `Failed to fetch inventory: ${inventoryError.message}` });
@@ -2062,9 +2062,9 @@ module.exports = async (req, res) => {
             for (const row of inventoryRows) {
               const key = row.stock_SKU;
               if (!inventoryMap[key]) {
-                inventoryMap[key] = { total_cogs: 0, total_qty: 0, total_stock: 0 };
+                inventoryMap[key] = { avg_per_unit: 0, total_qty: 0, total_stock: 0 };
               }
-              inventoryMap[key].total_cogs += Number(row.total_cogs) || 0;
+              inventoryMap[key].avg_per_unit += Number(row.avg_per_unit) || 0;
               inventoryMap[key].total_qty += Number(row.total_qty) || 0;
               inventoryMap[key].total_stock += Number(row.total_stock) || 0;
             }
@@ -2072,10 +2072,10 @@ module.exports = async (req, res) => {
         }
 
         const mergedData = (stocks || []).map((stock) => {
-          const inv = inventoryMap[stock.sku] || { total_cogs: 0, total_qty: 0, total_stock: 0 };
+          const inv = inventoryMap[stock.sku] || { avg_per_unit: 0, total_qty: 0, total_stock: 0 };
           return {
             ...stock,
-            total_cogs: inv.total_cogs,
+            avg_per_unit: inv.avg_per_unit,
             total_qty: inv.total_qty,
             total_stock: inv.total_stock,
           };
@@ -2198,23 +2198,36 @@ module.exports = async (req, res) => {
 
         // For getWarehouses, fetch stock items for each warehouse
         if (action === "getWarehouses") {
+          // Fetch all stocks and inventory in one go for efficiency
+          const { data: allStocks, error: stockError } = await supabase.from("stock").select("*").eq("user_id", user.id);
+          if (stockError) {
+            return res.status(500).json({ error: true, message: `Failed to fetch stock: ${stockError.message}` });
+          }
+
+          // Get all SKUs from stocks
+          const skus = (allStocks || []).map((s) => s.sku).filter(Boolean);
+          let inventoryMap = {};
+          if (skus.length > 0) {
+            const { data: inventoryRows, error: inventoryError } = await supabase.from("inventory").select("stock_SKU, avg_per_unit, total_qty, total_stock").in("stock_SKU", skus);
+            if (inventoryError) {
+              return res.status(500).json({ error: true, message: `Failed to fetch inventory: ${inventoryError.message}` });
+            }
+            if (inventoryRows) {
+              for (const row of inventoryRows) {
+                const key = row.stock_SKU;
+                if (!inventoryMap[key]) {
+                  inventoryMap[key] = { avg_per_unit: 0, total_qty: 0, total_stock: 0 };
+                }
+                inventoryMap[key].avg_per_unit += Number(row.avg_per_unit) || 0;
+                inventoryMap[key].total_qty += Number(row.total_qty) || 0;
+                inventoryMap[key].total_stock += Number(row.total_stock) || 0;
+              }
+            }
+          }
+
           const warehousesWithStock = await Promise.all(
             formattedData.map(async (warehouse) => {
-              // Fetch stock items where warehouses field contains this warehouse name
-              // Support both string and array formats
-              const { data: allStocks, error: stockError } = await supabase.from("stock").select("*").eq("user_id", user.id);
-
-              if (stockError) {
-                console.error(`Error fetching stock for warehouse ${warehouse.name}:`, stockError);
-                return {
-                  ...warehouse,
-                  stock_items: [],
-                  stock_count: 0,
-                };
-              }
-
               // Filter stocks that contain this warehouse name
-              // Works for both string format: "Warehouse A" and array format: ["Warehouse A", "Warehouse B"]
               const stockItems = (allStocks || []).filter((stock) => {
                 if (typeof stock.warehouses === "string") {
                   return stock.warehouses === warehouse.name;
@@ -2224,7 +2237,22 @@ module.exports = async (req, res) => {
                 return false;
               });
 
-              const stockCount = stockItems.length;
+              // For each stock item, add total_stock, total_qty, avg_per_unit
+              const stockItemsWithInventory = stockItems.map((stock) => {
+                const inv = inventoryMap[stock.sku] || { avg_per_unit: 0, total_qty: 0, total_stock: 0 };
+                // avg_per_unit diambil dari field stock.avg_per_unit
+                return {
+                  ...stock,
+                  total_qty: inv.total_qty,
+                  total_stock: inv.total_stock,
+                  avg_per_unit: inv.avg_per_unit,
+                };
+              });
+
+              // Calculate warehouse-level qty and total (total = sum of total_stock from stock_items)
+              const qty = stockItemsWithInventory.reduce((sum, s) => sum + (Number(s.total_qty) || 0), 0);
+              const total = stockItemsWithInventory.reduce((sum, s) => sum + (Number(s.total_stock) || 0), 0);
+              const stockCount = stockItemsWithInventory.length;
 
               // Auto-update total_stock in database if different
               if (warehouse.total_stock !== stockCount) {
@@ -2239,9 +2267,11 @@ module.exports = async (req, res) => {
 
               return {
                 ...warehouse,
-                total_stock: stockCount, // Update total_stock dengan jumlah stock items aktual
-                stock_items: stockItems,
+                total_stock: stockCount, // jumlah jenis barang
+                stock_items: stockItemsWithInventory,
                 stock_count: stockCount,
+                qty, // total_qty semua stock_items
+                total, // total_stock semua stock_items
               };
             })
           );
