@@ -423,6 +423,13 @@ module.exports = async (req, res) => {
             insertedFgLines = fgInserted || [];
           }
 
+          // Update Work In Process status to Completed
+          const { data: updated, error: updateStatusError } = await supabase.from("work_in_process").update({ status: "Completed" }).eq("id", wip.id).select();
+
+          if (updateStatusError) {
+            return res.status(500).json({ error: true, message: "Failed to update work in process status: " + updateStatusError.message });
+          }
+
           // -----------------------------
           // Update stock quantities for direct_material and indirect_material
           // -----------------------------
@@ -2549,6 +2556,7 @@ module.exports = async (req, res) => {
               total_cogm_est: round0(total_cogm_est),
               cogm_unit_est: round0(cogm_unit_est),
               created_at: new Date().toISOString(),
+              status: "Pending",
             };
 
             // Check if a WIP record already exists for this production plan (match by prod_code/job_order_num/sku and user_id)
@@ -2594,6 +2602,7 @@ module.exports = async (req, res) => {
                 total_cogm_est: round0(total_cogm_est),
                 cogm_unit_est: round0(cogm_unit_est),
                 updated_at: new Date().toISOString(),
+                status: "Pending",
               };
 
               const { error: updateWipErr } = await supabase.from("work_in_process").update(updatePayload).eq("id", existingWipRecord.id);
@@ -2948,6 +2957,7 @@ module.exports = async (req, res) => {
             cogm_per_unit_actual: round0(cogm_per_unit_actual),
             cost_variance: round0(cost_variance),
             updated_at: new Date().toISOString(),
+            status: "Pending",
           })
           .eq("id", id);
 
