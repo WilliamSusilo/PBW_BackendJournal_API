@@ -25,6 +25,11 @@ const round2 = (n) => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 10
 // Round to 0 decimal places (integer)
 const round0 = (n) => Math.round(Number(n) || 0);
 
+// Helper to validate UUID (v1-v5) simple regex
+const isUUID = (v) => {
+  if (!v || typeof v !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+};
 // Helper to ensure warehouse exists, auto-create if not
 // Supports both single string and array of warehouse names
 async function ensureWarehouseExists(supabase, userId, warehouseInput) {
@@ -2049,18 +2054,23 @@ module.exports = async (req, res) => {
         }
 
         if (search) {
-          const stringColumns = ["name", "sku", "category", "unit", "warehouses"];
-          const intColumns = ["minimum_stock"];
+          // If search looks like a UUID, filter by id directly
+          if (isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const stringColumns = ["name", "sku", "category", "unit", "warehouses"];
+            const intColumns = ["minimum_stock"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-          const eqIntConditions = [];
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+            const eqIntConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions].join(",");
+            query = query.or(searchConditions);
           }
-
-          const searchConditions = [...ilikeConditions, ...eqIntConditions].join(",");
-          query = query.or(searchConditions);
         }
 
         const { data: stocks, error: fetchError } = await query;
@@ -2176,35 +2186,40 @@ module.exports = async (req, res) => {
         }
 
         if (search) {
-          const stringColumns = action === "getProducts" ? ["category", "name", "unit", "status"] : action === "getStocks" ? ["name", "sku", "category", "unit", "warehouses"] : ["name", "location"];
+          // If the search is a UUID, perform direct id equality filter
+          if (isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const stringColumns = action === "getProducts" ? ["category", "name", "unit", "status"] : action === "getStocks" ? ["name", "sku", "category", "unit", "warehouses"] : ["name", "location"];
 
-          const intColumns = action === "getProducts" ? ["total_stock", "min_stock"] : action === "getStocks" ? ["minimum_stock"] : ["total_stock"];
+            const intColumns = action === "getProducts" ? ["total_stock", "min_stock"] : action === "getStocks" ? ["minimum_stock"] : ["total_stock"];
 
-          const numericColumns = action === "getProducts" ? ["buy_price", "sell_price"] : [];
+            const numericColumns = action === "getProducts" ? ["buy_price", "sell_price"] : [];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-          const eqIntConditions = [];
-          const eqNumericConditions = [];
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+            const eqIntConditions = [];
+            const eqNumericConditions = [];
 
-          if (!isNaN(search) && Number.isInteger(Number(search))) {
-            eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
-          }
-
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
-          }
-
-          const codeMatch = search.match(/^(PRD|WH)(\d{3,})$/i);
-          if (codeMatch) {
-            const codeNum = parseInt(codeMatch[2], 10); // example = PRD001 --> 1
-
-            if (!isNaN(codeNum)) {
-              eqIntConditions.push(`number.eq.${codeNum}`);
+            if (!isNaN(search) && Number.isInteger(Number(search))) {
+              eqIntConditions.push(...intColumns.map((col) => `${col}.eq.${search}`));
             }
-          }
 
-          const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqNumericConditions].join(",");
-          query = query.or(searchConditions);
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            }
+
+            const codeMatch = search.match(/^(PRD|WH)(\d{3,})$/i);
+            if (codeMatch) {
+              const codeNum = parseInt(codeMatch[2], 10); // example = PRD001 --> 1
+
+              if (!isNaN(codeNum)) {
+                eqIntConditions.push(`number.eq.${codeNum}`);
+              }
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqIntConditions, ...eqNumericConditions].join(",");
+            query = query.or(searchConditions);
+          }
         }
 
         const { data, error: fetchError } = await query;
