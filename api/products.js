@@ -1173,24 +1173,38 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
-        const itemsProductPayload =
-          items_product && typeof items_product === "object"
-            ? {
-                stock_COA: items_product.stock_COA ?? null,
-                stock_name: items_product.stock_name ?? null,
-                sell_price: items_product.sell_price != null ? Number(items_product.sell_price) : null,
-                cogs: items_product.cogs != null ? Number(items_product.cogs) : null,
-              }
-            : {
-                stock_COA: stock_COA ?? null,
-                stock_name: stock_name ?? null,
-                sell_price: sell_price != null ? Number(sell_price) : null,
-                cogs: cogs != null ? Number(cogs) : null,
-              };
+        let itemsProductPayload;
+        if (Array.isArray(items_product)) {
+          itemsProductPayload = items_product.map((item) => ({
+            stock_COA: item.stock_COA ?? null,
+            stock_name: item.stock_name ?? null,
+            sell_price: item.sell_price != null ? Number(item.sell_price) : null,
+            cogs: item.cogs != null ? Number(item.cogs) : null,
+          }));
+        } else if (items_product && typeof items_product === "object") {
+          itemsProductPayload = {
+            stock_COA: items_product.stock_COA ?? null,
+            stock_name: items_product.stock_name ?? null,
+            sell_price: items_product.sell_price != null ? Number(items_product.sell_price) : null,
+            cogs: items_product.cogs != null ? Number(items_product.cogs) : null,
+          };
+        } else {
+          itemsProductPayload = {
+            stock_COA: stock_COA ?? null,
+            stock_name: stock_name ?? null,
+            sell_price: sell_price != null ? Number(sell_price) : null,
+            cogs: cogs != null ? Number(cogs) : null,
+          };
+        }
 
         // Ensure all required items_product fields are present (not null/undefined)
         const requiredItemKeys = ["stock_COA", "stock_name", "sell_price", "cogs"];
-        const hasAllItemFields = requiredItemKeys.every((k) => itemsProductPayload[k] !== null && itemsProductPayload[k] !== undefined);
+        let hasAllItemFields = true;
+        if (Array.isArray(items_product)) {
+          hasAllItemFields = items_product.every((item) => requiredItemKeys.every((k) => item[k] !== null && item[k] !== undefined));
+        } else {
+          hasAllItemFields = requiredItemKeys.every((k) => itemsProductPayload[k] !== null && itemsProductPayload[k] !== undefined);
+        }
         if (!hasAllItemFields) {
           return res.status(400).json({ error: true, message: "Missing required items_product fields (stock_COA, stock_name, sell_price, cogs)" });
         }

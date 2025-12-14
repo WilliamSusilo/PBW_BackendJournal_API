@@ -2753,7 +2753,7 @@ module.exports = async (req, res) => {
         if (userError || !user) return res.status(401).json({ error: true, message: "Invalid or expired token" });
 
         try {
-          let { customer_name, number, quotation_date, valid_until, status, terms, items: itemsRaw, total, memo, type, tax_details, customer_address, customer_phone, start_date } = req.body;
+          let { customer_name, number, quotation_date, valid_until, status, terms, items: itemsRaw, total, memo, type, tax_details, customer_address, customer_phone, start_date, tags } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2897,6 +2897,7 @@ module.exports = async (req, res) => {
               customer_address,
               customer_phone,
               start_date,
+              tags,
             },
           ]);
 
@@ -4546,7 +4547,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, number, customer_name, quotation_date, valid_until, status, terms, items: itemsRaw, total, memo, type, tax_details, filesToDelete, customer_address, customer_phone, start_date } = req.body;
+          const { id, number, customer_name, quotation_date, valid_until, status, terms, items: itemsRaw, total, memo, type, tax_details, filesToDelete, customer_address, customer_phone, start_date, tags } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -4656,6 +4657,7 @@ module.exports = async (req, res) => {
               customer_address,
               customer_phone,
               start_date,
+              tags,
               updated_at: new Date().toISOString(),
             })
             .eq("id", id);
