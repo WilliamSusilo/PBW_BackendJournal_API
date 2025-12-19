@@ -2646,6 +2646,17 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
+          if (unearned_revenue_amount) {
+            const minDp = 0.1 * grand_total; // 10% from grand_total
+
+            if (Number(unearned_revenue_amount) < minDp) {
+              return res.status(400).json({
+                error: true,
+                message: `The down payment amount entered is too low. It must be at least 10% of the total invoice amount = (${minDp.toLocaleString("id-ID")}).`,
+              });
+            }
+          }
+
           // const orderDate = new Date(order_date);
           // const month = orderDate.getMonth() + 1;
           // const year = orderDate.getFullYear();
@@ -2828,7 +2839,7 @@ module.exports = async (req, res) => {
           // const prefix = `${year}${String(month).padStart(2, "0")}`;
 
           // const { data: latestQuote, error: fetchError } = await supabase
-          //   .from("quotations")
+          //   .from("quotations_sales")
           //   .select("number")
           //   .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
           //   .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -3863,6 +3874,50 @@ module.exports = async (req, res) => {
             });
           }
 
+          if (existingInvoice && existingInvoice.status === "Completed") {
+            const { data: receivableSummaries, error: billingError } = await supabase.from("receivable_summary_sales").select("id, number, status").eq("number", existingInvoice.number);
+
+            console.log("Fetched receivable summary:", receivableSummaries, "Billing error:", billingError);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing orders in sales: " + billingError.message,
+              });
+            }
+
+            if (receivableSummaries[0].status === "Completed" || receivableSummaries[0].status === "Pending") {
+              return res.status(200).json({
+                error: true,
+                message: "Receivable Summary is already Completed/Already Paid in Installment",
+              });
+            }
+
+            if (receivableSummaries && receivableSummaries.length > 0 && receivableSummaries[0].status === "Unpaid") {
+              const invoiceNumber = `INV-${existingInvoice.number}`;
+
+              console.log("Deleting journal entries for invoice number:", invoiceNumber);
+
+              const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
+
+              if (deleteJournalError) {
+                return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
+              }
+
+              const { error: deleteError } = await supabase.from("receivable_summary_sales").delete().eq("number", existingInvoice.number);
+
+              if (deleteError) {
+                return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+              }
+
+              const { error: resetError } = await supabase.from("invoices_sales").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+              if (resetError) {
+                return res.status(500).json({ error: true, message: "Failed to reset invoice status: " + resetError.message });
+              }
+            }
+          }
+
           // Update items with total_per_item if items are provided
           let updatedItems = existingInvoice.items;
           if (items && items.length > 0) {
@@ -4478,7 +4533,64 @@ module.exports = async (req, res) => {
           }
 
           if (!id) {
-            return res.status(400).json({ error: true, message: "Missing required fields" });
+            return res.status(400).json({ error: true, message: "Order ID is required" });
+          }
+
+          if (unearned_revenue_amount) {
+            const minDp = 0.1 * grand_total; // 10% from grand_total
+
+            if (Number(unearned_revenue_amount) < minDp) {
+              return res.status(400).json({
+                error: true,
+                message: `The down payment amount entered is too low. It must be at least 10% of the total invoice amount = (${minDp.toLocaleString("id-ID")}).`,
+              });
+            }
+          }
+
+          // Check if order exists and belongs to user
+          const { data: existingRequest, error: fetchError } = await supabase.from("orders_sales").select("*").eq("id", id).single();
+
+          if (fetchError || !existingRequest) {
+            return res.status(404).json({
+              error: true,
+              message: "Order not found or unauthorized",
+            });
+          }
+
+          if (existingRequest && existingRequest.status === "Completed") {
+            const { data: billingOrders, error: billingError } = await supabase.from("billing_orders_sales").select("number, status").eq("number", existingRequest.number);
+
+            if (billingError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to check billing orders in sales: " + billingError.message,
+              });
+            }
+
+            if (billingOrders[0].status === "Completed") {
+              return res.status(200).json({
+                error: true,
+                message: "Billing Order is already Completed",
+              });
+            }
+
+            if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
+              const billingOrderNumber = `ORD-${existingRequest.number}`;
+              const { error: deleteError } = await supabase.from("billing_orders_sales").delete().eq("number", billingOrderNumber);
+
+              if (deleteError) {
+                return res.status(500).json({
+                  error: true,
+                  message: "Failed to delete related billing orders in sales: " + deleteError.message,
+                });
+              }
+            }
+
+            const { error: resetError } = await supabase.from("orders_sales").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset order status: " + resetError.message });
+            }
           }
 
           const updatedItems = items.map((item) => {
@@ -4632,6 +4744,20 @@ module.exports = async (req, res) => {
 
           if (!id) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
+          }
+
+          if (quotationData && quotationData.status === "Completed") {
+            const { error: deleteOfferError } = await supabase.from("offers_sales").delete().eq("number", quotationData.number);
+
+            if (deleteOfferError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related offer: " + deleteOfferError.message });
+            }
+
+            const { error: resetError } = await supabase.from("quotations_sales").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+            if (resetError) {
+              return res.status(500).json({ error: true, message: "Failed to reset quotation status: " + resetError.message });
+            }
           }
 
           const updatedItems = items.map((item) => {
@@ -6514,7 +6640,7 @@ module.exports = async (req, res) => {
         const prefix = `${year}${String(month).padStart(2, "0")}`;
 
         const { data: latestQuote, error: fetchError } = await supabase
-          .from("quotations")
+          .from("quotations_sales")
           .select("number")
           .gte("quotation_date", `${year}-${String(month).padStart(2, "0")}-01`)
           .lt("quotation_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
@@ -6547,7 +6673,7 @@ module.exports = async (req, res) => {
 
         // const grand_total = updatedItems.reduce((sum, item) => sum + item.total_per_item, 0);
 
-        const { error: insertError } = await supabase.from("quotations").insert([
+        const { error: insertError } = await supabase.from("quotations_sales").insert([
           {
             user_id: user.id,
             number: nextQuotationNumber,
@@ -6765,6 +6891,20 @@ module.exports = async (req, res) => {
 
         const { id, customer_name, quotation_date, valid_until, status, terms, items, total } = req.body;
 
+        if (quotationData && quotationData.status === "Completed") {
+          const { error: deleteOfferError } = await supabase.from("offers_sales").delete().eq("number", quotationData.number);
+
+          if (deleteOfferError) {
+            return res.status(500).json({ error: true, message: "Failed to delete related offer: " + deleteOfferError.message });
+          }
+
+          const { error: resetError } = await supabase.from("quotations_sales").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", id);
+
+          if (resetError) {
+            return res.status(500).json({ error: true, message: "Failed to reset quotation status: " + resetError.message });
+          }
+        }
+
         const updatedItems = items.map((item) => {
           const qty = Number(item.qty) || 0;
           const unit_price = Number(item.unit_price) || 0;
@@ -6777,7 +6917,7 @@ module.exports = async (req, res) => {
         });
 
         const { error: updateError } = await supabase
-          .from("quotations")
+          .from("quotations_sales")
           .update({
             customer_name,
             quotation_date,
@@ -7003,7 +7143,7 @@ module.exports = async (req, res) => {
       //   const quotationId = req.query.id;
       //   if (!quotationId) return res.status(400).json({ error: true, message: "Missing quotation id" });
 
-      //   const { data: quotation, error: fetchError } = await supabase.from("quotations").select("*").eq("id", quotationId).single();
+      //   const { data: quotation, error: fetchError } = await supabase.from("quotations_sales").select("*").eq("id", quotationId).single();
 
       //   if (fetchError || !quotation) {
       //     return res.status(404).json({ error: true, message: "Quotation not found" });

@@ -1700,6 +1700,7 @@ module.exports = async (req, res) => {
       case "deleteWarehouse":
       case "deleteBillOfMaterial":
       case "deleteProductionPlan":
+      case "deleteWorkInProcess":
       case "deleteStock": {
         if (method !== "DELETE") {
           return res.status(405).json({ error: true, message: `Method not allowed. Use DELETE for ${action}.` });
@@ -1760,9 +1761,31 @@ module.exports = async (req, res) => {
           });
         }
 
-        const tableName = action === "deleteProduct" ? "products" : action === "deleteWarehouse" ? "warehouses" : action === "deleteBillOfMaterial" ? "bill_of_material" : action === "deleteProductionPlan" ? "production_plan" : "stock";
+        const tableName =
+          action === "deleteProduct"
+            ? "products"
+            : action === "deleteWarehouse"
+            ? "warehouses"
+            : action === "deleteBillOfMaterial"
+            ? "bill_of_material"
+            : action === "deleteProductionPlan"
+            ? "production_plan"
+            : action === "deleteWorkInProcess"
+            ? "work_in_process"
+            : "stock";
 
-        const entityName = action === "deleteProduct" ? "Product" : action === "deleteWarehouse" ? "Warehouse" : action === "deleteBillOfMaterial" ? "Bill of Material" : action === "deleteProductionPlan" ? "Production Plan" : "Stock";
+        const entityName =
+          action === "deleteProduct"
+            ? "Product"
+            : action === "deleteWarehouse"
+            ? "Warehouse"
+            : action === "deleteBillOfMaterial"
+            ? "Bill of Material"
+            : action === "deleteProductionPlan"
+            ? "Production Plan"
+            : action === "deleteWorkInProcess"
+            ? "Work In Process"
+            : "Stock";
 
         const { data: record, error: fetchError } = await supabase.from(tableName).select("*").eq("id", id);
 
