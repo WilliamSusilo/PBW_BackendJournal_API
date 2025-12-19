@@ -2626,7 +2626,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!number || !customer_name || !customer_phone || !customer_email || !order_date || !delivery_date || !status || !items || items.length === 0 || !grand_total || !customer_address || !level) {
+          if (!number || !customer_name || !customer_phone || !order_date || !delivery_date || !status || !items || items.length === 0 || !grand_total || !customer_address || !level) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
