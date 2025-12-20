@@ -2551,12 +2551,9 @@ module.exports = async (req, res) => {
             number,
             customer_name,
             customer_phone,
-            customer_email,
             shipping_address,
             order_date,
             delivery_date,
-            shipping_method,
-            payment_method,
             status,
             tracking_number,
             notes,
@@ -2704,12 +2701,9 @@ module.exports = async (req, res) => {
               number,
               customer_name,
               customer_phone,
-              customer_email,
               shipping_address,
               order_date,
               delivery_date,
-              shipping_method,
-              payment_method,
               status,
               tracking_number,
               notes,
@@ -4421,12 +4415,9 @@ module.exports = async (req, res) => {
             number,
             customer_name,
             customer_phone,
-            customer_email,
             shipping_address,
             order_date,
             delivery_date,
-            shipping_method,
-            payment_method,
             status,
             tracking_number,
             notes,
@@ -4593,12 +4584,9 @@ module.exports = async (req, res) => {
               number,
               customer_name,
               customer_phone,
-              customer_email,
               shipping_address,
               order_date,
               delivery_date,
-              shipping_method,
-              payment_method,
               status,
               tracking_number,
               notes,
@@ -6501,9 +6489,9 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { customer_name, customer_phone, customer_email, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
+        const { customer_name, customer_phone, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
 
-        if (!customer_name || !customer_phone || !customer_email || !shipping_address || !order_date || !delivery_date || !shipping_method || !payment_method || !status || !items || items.length === 0 || !grand_total) {
+        if (!customer_name || !customer_phone || !shipping_address || !order_date || !delivery_date || !shipping_method || !payment_method || !status || !items || items.length === 0 || !grand_total) {
           return res.status(400).json({ error: true, message: "Missing required fields" });
         }
 
@@ -6552,7 +6540,6 @@ module.exports = async (req, res) => {
             number: nextOrderNumber,
             customer_name,
             customer_phone,
-            customer_email,
             shipping_address,
             order_date,
             delivery_date,
@@ -6792,7 +6779,7 @@ module.exports = async (req, res) => {
         //   });
         // }
 
-        const { id, customer_name, customer_phone, customer_email, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
+        const { id, customer_name, customer_phone, shipping_address, order_date, delivery_date, shipping_method, payment_method, status, tracking_number, notes, items, grand_total } = req.body;
 
         const updatedItems = items.map((item) => {
           const quantity = Number(item.quantity) || 0;
@@ -6809,7 +6796,6 @@ module.exports = async (req, res) => {
           .update({
             customer_name,
             customer_phone,
-            customer_email,
             shipping_address,
             order_date,
             delivery_date,
@@ -7013,7 +6999,6 @@ module.exports = async (req, res) => {
       //     rpt.print(delivery.customer_name, { x: 40, y: 275, fontSize: 12 });
 
       //     rpt.print("Email", { x: 40, y: 295, fontSize: 10, color: "gray" });
-      //     rpt.print(delivery.customer_email || "-", { x: 40, y: 310, fontSize: 12 });
 
       //     rpt.print("Phone", { x: 40, y: 330, fontSize: 10, color: "gray" });
       //     rpt.print(delivery.customer_phone || "-", { x: 40, y: 345, fontSize: 12 });
