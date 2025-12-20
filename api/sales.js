@@ -2547,25 +2547,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let {
-            number,
-            customer_name,
-            customer_phone,
-            shipping_address,
-            order_date,
-            delivery_date,
-            status,
-            tracking_number,
-            notes,
-            items: itemsRaw,
-            grand_total,
-            memo,
-            type,
-            tax_details,
-            customer_address,
-            level,
-            unearned_revenue_amount,
-          } = req.body;
+          let { number, customer_name, customer_phone, order_date, due_date, status, notes, items: itemsRaw, grand_total, memo, type, tax_details, customer_address, level, unearned_revenue_amount } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2623,7 +2605,7 @@ module.exports = async (req, res) => {
             }
           }
 
-          if (!number || !customer_name || !customer_phone || !order_date || !delivery_date || !status || !items || items.length === 0 || !grand_total || !customer_address || !level) {
+          if (!number || !customer_name || !customer_phone || !order_date || !due_date || !status || !items || items.length === 0 || !grand_total || !customer_address || !level) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
@@ -2701,11 +2683,9 @@ module.exports = async (req, res) => {
               number,
               customer_name,
               customer_phone,
-              shipping_address,
               order_date,
-              delivery_date,
+              due_date,
               status,
-              tracking_number,
               notes,
               items: updatedItems,
               grand_total,
@@ -4410,27 +4390,7 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const {
-            id,
-            number,
-            customer_name,
-            customer_phone,
-            shipping_address,
-            order_date,
-            delivery_date,
-            status,
-            tracking_number,
-            notes,
-            items: itemsRaw,
-            grand_total,
-            memo,
-            type,
-            tax_details,
-            filesToDelete,
-            customer_address,
-            level,
-            unearned_revenue_amount,
-          } = req.body;
+          const { id, number, customer_name, customer_phone, order_date, due_date, status, notes, items: itemsRaw, grand_total, memo, type, tax_details, filesToDelete, customer_address, level, unearned_revenue_amount } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -4584,11 +4544,9 @@ module.exports = async (req, res) => {
               number,
               customer_name,
               customer_phone,
-              shipping_address,
               order_date,
-              delivery_date,
+              due_date,
               status,
-              tracking_number,
               notes,
               items: updatedItems,
               grand_total,
