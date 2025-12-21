@@ -2062,6 +2062,88 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data });
       }
 
+      case "getStockMovement": {
+        if (method !== "GET") {
+          return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getStockMovement." });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        // Pagination support (optional)
+        const pagination = parseInt(req.query.page) || 1;
+        const limitValue = parseInt(req.query.limit) || 50;
+        const from = (pagination - 1) * limitValue;
+        const to = from + limitValue - 1;
+
+        // Fetch only inventory rows with types Purchase, Sales, Adjustment
+        const allowedTypes = ["Purchase", "Sales", "Adjustment"];
+        const { data: inventoryRows, error: invErr } = await supabase.from("inventory").select("*").in("type", allowedTypes).order("inventory_date", { ascending: false }).range(from, to);
+
+        if (invErr) {
+          return res.status(500).json({ error: true, message: "Failed to fetch inventory: " + invErr.message });
+        }
+
+        const mapped = (inventoryRows || []).map((r) => {
+          const type = r.type || "";
+          if (type === "Purchase") {
+            const nett_quantity = r.nett_quantity !== null && r.nett_quantity !== undefined ? Number(r.nett_quantity) || 0 : (Number(r.quantity_purchase) || 0) - (Number(r.return_purchase) || 0);
+
+            return {
+              id: r.id,
+              type: "Purchase",
+              inventory_date: r.inventory_date,
+              description: r.description,
+              nett_quantity,
+              nett_price_item: r.nett_price_item,
+              nett_purchase: r.nett_purchase,
+            };
+          } else if (type === "Sales") {
+            const nett_quantity = (Number(r.quantity_sale) || 0) - (Number(r.return_sale) || 0);
+            return {
+              id: r.id,
+              type: "Sales",
+              inventory_date: r.inventory_date,
+              description: r.description,
+              nett_quantity,
+              price_sale: r.price_sale,
+              total_sale: r.total_sale,
+            };
+          } else if (type === "Adjustment") {
+            return {
+              id: r.id,
+              type: "Adjustment",
+              inventory_date: r.inventory_date,
+              description: r.description,
+            };
+          }
+
+          // default fallback: include basic fields
+          return {
+            id: r.id,
+            type: r.type,
+            inventory_date: r.inventory_date,
+            description: r.description,
+          };
+        });
+
+        return res.status(200).json({ error: false, data: mapped });
+      }
+
       case "getStockTable": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getStockTable." });
