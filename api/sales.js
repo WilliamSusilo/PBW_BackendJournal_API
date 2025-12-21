@@ -4676,6 +4676,12 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: true, message: "Missing required fields" });
           }
 
+          const { data: quotationData, error: quotationError } = await supabase.from("quotations_sales").select("status, number").eq("id", id).single();
+
+          if (quotationError) {
+            return res.status(500).json({ error: true, message: "Failed to fetch quotation: " + quotationError.message });
+          }
+
           if (quotationData && quotationData.status === "Completed") {
             const { error: deleteOfferError } = await supabase.from("offers_sales").delete().eq("number", quotationData.number);
 
