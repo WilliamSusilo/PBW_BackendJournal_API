@@ -2547,7 +2547,30 @@ module.exports = async (req, res) => {
         }
 
         try {
-          let { number, customer_name, customer_phone, order_date, due_date, status, notes, items: itemsRaw, grand_total, memo, type, tax_details, customer_address, level, unearned_revenue_amount, tags } = req.body;
+          let {
+            number,
+            customer_name,
+            customer_phone,
+            order_date,
+            due_date,
+            status,
+            notes,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            type,
+            tax_details,
+            customer_address,
+            level,
+            unearned_revenue_amount,
+            tags,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -2697,6 +2720,12 @@ module.exports = async (req, res) => {
               level,
               unearned_revenue_amount,
               tags,
+              ppn_percentage,
+              pph_type,
+              pph_percentage,
+              dpp,
+              ppn,
+              pph,
             },
           ]);
 
@@ -4391,7 +4420,32 @@ module.exports = async (req, res) => {
         }
 
         try {
-          const { id, number, customer_name, customer_phone, order_date, due_date, status, notes, items: itemsRaw, grand_total, memo, type, tax_details, filesToDelete, customer_address, level, unearned_revenue_amount, tags } = req.body;
+          const {
+            id,
+            number,
+            customer_name,
+            customer_phone,
+            order_date,
+            due_date,
+            status,
+            notes,
+            items: itemsRaw,
+            grand_total,
+            memo,
+            type,
+            tax_details,
+            filesToDelete,
+            customer_address,
+            level,
+            unearned_revenue_amount,
+            tags,
+            ppn_percentage,
+            pph_type,
+            pph_percentage,
+            dpp,
+            ppn,
+            pph,
+          } = req.body;
 
           // Parse items if they come in string form (because of form-data)
           let items;
@@ -4560,6 +4614,12 @@ module.exports = async (req, res) => {
               unearned_revenue_amount,
               updated_at: new Date().toISOString(),
               tags,
+              ppn_percentage,
+              pph_type,
+              pph_percentage,
+              dpp,
+              ppn,
+              pph,
             })
             .eq("id", id);
 
