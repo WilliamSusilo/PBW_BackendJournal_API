@@ -1852,16 +1852,22 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["bom_name", "sku", "category"];
           const numericColumns = ["qty_goods_est", "est_compl_time", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-          const eqNumericConditions = [];
+          // If searching by UUID and id is allowed, filter directly by id
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+            const eqNumericConditions = [];
 
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+            query = query.or(searchConditions);
           }
-
-          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
-          query = query.or(searchConditions);
         }
 
         const { data, error: fetchError } = await query;
@@ -1911,16 +1917,21 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["product_name", "sku", "category"];
           const numericColumns = ["qty_goods_est", "total_qty_goods_est", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-          const eqNumericConditions = [];
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+            const eqNumericConditions = [];
 
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+            query = query.or(searchConditions);
           }
-
-          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
-          query = query.or(searchConditions);
         }
 
         const { data, error: fetchError } = await query;
@@ -1970,16 +1981,21 @@ module.exports = async (req, res) => {
         if (search) {
           const stringColumns = ["product_name", "sku", "category", "processes", "job_desc"];
           const numericColumns = ["qty_goods_est", "total_qty_goods_est", "total_foc_est", "total_cogm_est", "cogm_unit_est"];
+          const uuidColumns = ["id"];
 
-          const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
-          const eqNumericConditions = [];
+          if (uuidColumns.includes("id") && isUUID(search)) {
+            query = query.eq("id", search);
+          } else {
+            const ilikeConditions = stringColumns.map((col) => `${col}.ilike.%${search}%`);
+            const eqNumericConditions = [];
 
-          if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
-            eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            if (!isNaN(search) && !Number.isNaN(parseFloat(search))) {
+              eqNumericConditions.push(...numericColumns.map((col) => `${col}.eq.${parseFloat(search)}`));
+            }
+
+            const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
+            query = query.or(searchConditions);
           }
-
-          const searchConditions = [...ilikeConditions, ...eqNumericConditions].join(",");
-          query = query.or(searchConditions);
         }
 
         const { data, error: fetchError } = await query;
