@@ -2730,20 +2730,16 @@ module.exports = async (req, res) => {
               status: "Pending",
             };
 
-            // Check if a WIP record already exists for this production plan (match by prod_code/job_order_num/sku and user_id)
+            // Check if a WIP record already exists for this production plan
+            // New rule: consider a record "found" ONLY when BOTH prod_code AND job_order_num match
             let existingWipRecord = null;
             try {
-              // Prefer matching by prod_code + user
-              if (finalProdCode) {
-                const { data: found, error: fErr } = await supabase.from("work_in_process").select("*").eq("prod_code", finalProdCode).maybeSingle();
+              if (finalProdCode && finalJobOrderNum) {
+                const { data: found, error: fErr } = await supabase.from("work_in_process").select("*").eq("prod_code", finalProdCode).eq("job_order_num", finalJobOrderNum).maybeSingle();
                 if (!fErr && found) existingWipRecord = found;
               }
-
-              // If not found and job_order_num present, try matching by job_order_num
-              if (!existingWipRecord && finalJobOrderNum) {
-                const { data: found2, error: f2Err } = await supabase.from("work_in_process").select("*").eq("job_order_num", finalJobOrderNum).maybeSingle();
-                if (!f2Err && found2) existingWipRecord = found2;
-              }
+              // If either value is missing or the combined match didn't return a record,
+              // we treat it as not found (so the code will insert a new WIP record).
             } catch (wipFetchErr) {
               console.error("Failed to lookup existing work_in_process:", wipFetchErr);
             }
