@@ -3440,7 +3440,7 @@ module.exports = async (req, res) => {
             user_id: user.id,
             memo,
             account_receivable_COA,
-            account_receivable_amount: existingBilling.grand_total - paid_amount,
+            account_receivable_amount,
             payment_COA,
             account_receivable_name,
             payment_name,
