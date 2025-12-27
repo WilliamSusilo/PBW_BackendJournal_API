@@ -77,6 +77,67 @@ async function ensureWarehouseExists(supabase, userId, warehouseInput) {
   return { success: true, createdWarehouses, results };
 }
 
+// Helper to update total_stock field for given warehouse name(s)
+async function updateWarehouseTotalStock(supabase, userId, warehouseInput) {
+  // normalize to array of names
+  let warehouseNames = [];
+  if (typeof warehouseInput === "string") warehouseNames = [warehouseInput];
+  else if (Array.isArray(warehouseInput)) warehouseNames = warehouseInput.filter((w) => w && typeof w === "string");
+  else return { success: false, error: "Invalid warehouse input" };
+
+  if (warehouseNames.length === 0) return { success: false, error: "No warehouse names provided" };
+
+  try {
+    // fetch all stocks for this user once, then filter per warehouse
+    const { data: allStocks, error: stockErr } = await supabase.from("stock").select("id, sku, warehouses").eq("user_id", userId);
+    if (stockErr) return { success: false, error: "Failed to fetch stocks: " + stockErr.message };
+
+    // fetch all inventory rows for relevant SKUs
+    const skus = (allStocks || []).map((s) => s.sku).filter(Boolean);
+    const inventoryMap = {};
+    if (skus.length > 0) {
+      const { data: inventoryRows, error: invErr } = await supabase.from("inventory").select("stock_SKU, total_stock").in("stock_SKU", skus);
+      if (invErr) return { success: false, error: "Failed to fetch inventory: " + invErr.message };
+      for (const row of inventoryRows || []) {
+        const key = row.stock_SKU;
+        inventoryMap[key] = (inventoryMap[key] || 0) + (Number(row.total_stock) || 0);
+      }
+    }
+
+    // For each warehouse name, compute total_stock from stocks assigned to it
+    for (const wName of warehouseNames) {
+      // find stocks that belong to this warehouse
+      const stocksForWarehouse = (allStocks || []).filter((s) => {
+        const w = s.warehouses;
+        if (Array.isArray(w)) return w.includes(wName);
+        if (typeof w === "string") return w === wName || w.indexOf(wName) !== -1;
+        return false;
+      });
+
+      const skusForW = stocksForWarehouse.map((s) => s.sku).filter(Boolean);
+      let total = 0;
+      for (const sku of skusForW) {
+        total += inventoryMap[sku] || 0;
+      }
+
+      // find warehouse record
+      const { data: wh, error: whErr } = await supabase.from("warehouses").select("id").eq("name", wName).maybeSingle();
+      if (whErr) return { success: false, error: "Failed to fetch warehouse: " + whErr.message };
+      if (!wh) continue; // nothing to update
+
+      const { error: updateErr } = await supabase
+        .from("warehouses")
+        .update({ total_stock: Math.round(total) })
+        .eq("id", wh.id);
+      if (updateErr) return { success: false, error: "Failed to update warehouse total_stock: " + updateErr.message };
+    }
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message || String(e) };
+  }
+}
+
 module.exports = async (req, res) => {
   await runMiddleware(req, res, cors);
   const { method, query } = req;
