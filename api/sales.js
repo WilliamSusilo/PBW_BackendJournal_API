@@ -686,31 +686,31 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Invalid paid amount" });
         }
 
-        // const vatRate = toNum(ppn_percentage) / 100;
-        // const computeVat = (base) => {
-        //   const amt = toNum(base);
-        //   if (amt <= 0) return 0;
-        //   const pct = toNum(ppn_percentage);
-        //   let dppLocal = 0;
-        //   if (tax_method === "Before Calculate") {
-        //     if (pct === 11) {
-        //       dppLocal = amt;
-        //     } else if (pct === 12) {
-        //       dppLocal = (11 / 12) * amt;
-        //     } else {
-        //       dppLocal = (11 / 12) * amt;
-        //     }
-        //   } else {
-        //     if (pct === 11) {
-        //       dppLocal = amt / (1 + vatRate);
-        //     } else if (pct === 12) {
-        //       dppLocal = (11 / 12) * amt;
-        //     } else {
-        //       dppLocal = amt / (1 + vatRate);
-        //     }
-        //   }
-        //   return round0(dppLocal * vatRate);
-        // };
+        const vatRate = toNum(ppn_percentage) / 100;
+        const computeVat = (base) => {
+          const amt = toNum(base);
+          if (amt <= 0) return 0;
+          const pct = toNum(ppn_percentage);
+          let dppLocal = 0;
+          if (tax_method === "Before Calculate") {
+            if (pct === 11) {
+              dppLocal = amt;
+            } else if (pct === 12) {
+              dppLocal = (11 / 12) * amt;
+            } else {
+              dppLocal = (11 / 12) * amt;
+            }
+          } else {
+            if (pct === 11) {
+              dppLocal = amt / (1 + vatRate);
+            } else if (pct === 12) {
+              dppLocal = (11 / 12) * amt;
+            } else {
+              dppLocal = amt / (1 + vatRate);
+            }
+          }
+          return round0(dppLocal * vatRate);
+        };
 
         // ====== Initialize Journal Line Entries and Totals ======
         const lineEntries = [];
