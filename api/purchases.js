@@ -249,7 +249,7 @@ module.exports = async (req, res) => {
             if (billingError) {
               return res.status(500).json({
                 error: true,
-                message: "Failed to check billing orders in purchases: " + billingError.message,
+                message: "Failed to check billing invoices in purchases: " + billingError.message,
               });
             }
 

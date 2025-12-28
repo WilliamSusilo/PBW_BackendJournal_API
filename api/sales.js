@@ -524,39 +524,39 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Jika ada billing_invoices_purchases yang terkait dengan nomor ini, catat pembayaran (down payment)
-        // try {
-        //   const { data: relatedBillingInv, error: relatedBillingErr } = await supabase.from("billing_invoices_purchases").select("*").eq("number", billingOrder.number).maybeSingle();
+        // Jika ada receivable_summary_sales yang terkait dengan nomor ini, catat pembayaran (account receivable)
+        try {
+          const { data: relatedBillingInv, error: relatedBillingErr } = await supabase.from("receivable_summary_sales").select("*").eq("number", billingOrder.number).maybeSingle();
 
-        //   if (!relatedBillingErr && relatedBillingInv) {
-        //     // Tentukan nilai yang dibayarkan untuk billing order ini
-        //     let paidAmount = Number(billingOrder.paid_amount || 0);
-        //     // Jika paid_amount tidak tersimpan, coba hitung dari installment_amount + ppn (jika tersedia)
-        //     if (!paidAmount || paidAmount === 0) {
-        //       const installment = Number(billingOrder.installment_amount || 0);
-        //       const ppn = Number(billingOrder.ppn || 0);
-        //       if (installment > 0) paidAmount = installment + ppn;
-        //     }
+          if (!relatedBillingErr && relatedBillingInv) {
+            // Tentukan nilai yang dibayarkan untuk billing order ini
+            let paidAmount = Number(billingOrder.paid_amount || 0);
+            // Jika paid_amount tidak tersimpan, coba hitung dari installment_amount + ppn (jika tersedia)
+            if (!paidAmount || paidAmount === 0) {
+              const accountReceivableAmount = Number(billingOrder.account_receivable_amount || 0);
+              const ppn = Number(billingOrder.ppn || 0);
+              if (accountReceivableAmount > 0) paidAmount = accountReceivableAmount + ppn;
+            }
 
-        //     // Ambil payment_amount yang sudah ada (disimpan sebagai array JSON), lalu tambahkan entry baru
-        //     const existingPayments = Array.isArray(relatedBillingInv.payment_amount) ? [...relatedBillingInv.payment_amount] : [];
-        //     existingPayments.push({ billing_order_id: billingOrder.id, amount: Math.round(paidAmount), date: new Date().toISOString() });
+            // Ambil payment_amount yang sudah ada (disimpan sebagai array JSON), lalu tambahkan entry baru
+            const existingPayments = Array.isArray(relatedBillingInv.payment_amount) ? [...relatedBillingInv.payment_amount] : [];
+            existingPayments.push({ billing_order_id: billingOrder.id, amount: Math.round(paidAmount), date: new Date().toISOString() });
 
-        //     const totalPaid = existingPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
-        //     const grandTotal = Number(relatedBillingInv.grand_total || 0);
-        //     const newRemain = Math.max(0, Math.round(grandTotal - totalPaid));
+            const totalPaid = existingPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+            const grandTotal = Number(relatedBillingInv.grand_total || 0);
+            const newRemain = Math.max(0, Math.round(grandTotal - totalPaid));
 
-        //     const newStatus = newRemain <= 0 ? "Completed" : totalPaid > 0 ? "Pending" : relatedBillingInv.status || "Unpaid";
+            const newStatus = newRemain <= 0 ? "Completed" : totalPaid > 0 ? "Pending" : relatedBillingInv.status || "Unpaid";
 
-        //     const { error: updateBillingInvErr } = await supabase.from("billing_invoices_purchases").update({ payment_amount: existingPayments, remain_balance: newRemain, status: newStatus }).eq("id", relatedBillingInv.id);
+            const { error: updateBillingInvErr } = await supabase.from("receivable_summary_sales").update({ payment_amount: existingPayments, remain_balance: newRemain, status: newStatus }).eq("id", relatedBillingInv.id);
 
-        //     if (updateBillingInvErr) {
-        //       console.error("Failed to update related billing invoices in purchases with down payment:", updateBillingInvErr.message);
-        //     }
-        //   }
-        // } catch (e) {
-        //   console.error("Error while applying billing order payment to billing invoices in purchases:", e.message || e);
-        // }
+            if (updateBillingInvErr) {
+              console.error("Failed to update related receivable summary in sales with account receivable:", updateBillingInvErr.message);
+            }
+          }
+        } catch (e) {
+          console.error("Error while applying billing order payment to receivable summary in sales:", e.message || e);
+        }
 
         const { error: logErr } = await supabase.from("activity_logs").insert([
           {
@@ -659,12 +659,7 @@ module.exports = async (req, res) => {
           attachment_url,
           payment_date,
           due_date,
-          installment_count,
           installment_type,
-          ppn,
-          pph_type,
-          pph,
-          dpp,
           tax_method,
           ppn_percentage,
           pph_percentage,
@@ -676,6 +671,11 @@ module.exports = async (req, res) => {
           bill_order_amount,
         } = billing;
 
+        // Make tax/amount fields mutable because we compute/assign them later
+        let dpp = Number(billing.dpp) || 0;
+        let ppn = Number(billing.ppn) || 0;
+        let pph = Number(billing.pph) || 0;
+
         // Helpers
         const toNum = (v) => Number(v) || 0;
         const round0 = (v) => Math.round(toNum(v));
@@ -686,48 +686,278 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Invalid paid amount" });
         }
 
-        const vatRate = toNum(ppn_percentage) / 100;
-        const computeVat = (base) => {
-          const amt = toNum(base);
-          if (amt <= 0) return 0;
-          const pct = toNum(ppn_percentage);
-          let dppLocal = 0;
-          if (tax_method === "Before Calculate") {
-            if (pct === 11) {
-              dppLocal = amt;
-            } else if (pct === 12) {
-              dppLocal = (11 / 12) * amt;
-            } else {
-              dppLocal = (11 / 12) * amt;
-            }
-          } else {
-            if (pct === 11) {
-              dppLocal = amt / (1 + vatRate);
-            } else if (pct === 12) {
-              dppLocal = (11 / 12) * amt;
-            } else {
-              dppLocal = amt / (1 + vatRate);
-            }
+        // const vatRate = toNum(ppn_percentage) / 100;
+        // const computeVat = (base) => {
+        //   const amt = toNum(base);
+        //   if (amt <= 0) return 0;
+        //   const pct = toNum(ppn_percentage);
+        //   let dppLocal = 0;
+        //   if (tax_method === "Before Calculate") {
+        //     if (pct === 11) {
+        //       dppLocal = amt;
+        //     } else if (pct === 12) {
+        //       dppLocal = (11 / 12) * amt;
+        //     } else {
+        //       dppLocal = (11 / 12) * amt;
+        //     }
+        //   } else {
+        //     if (pct === 11) {
+        //       dppLocal = amt / (1 + vatRate);
+        //     } else if (pct === 12) {
+        //       dppLocal = (11 / 12) * amt;
+        //     } else {
+        //       dppLocal = amt / (1 + vatRate);
+        //     }
+        //   }
+        //   return round0(dppLocal * vatRate);
+        // };
+
+        // ====== Initialize Journal Line Entries and Totals ======
+        const lineEntries = [];
+
+        let discountPayment = 0;
+        let alerts = [];
+        let paymentDates = [];
+        const currentDate = new Date().toISOString().split("T")[0]; // contoh: "2025-10-10"
+        let installment_count = billing.installment_count || 0;
+        let discountRate = 0;
+        let discountDays = 0;
+        let netDays = 0;
+        let hasFinalPay;
+
+        // ====== Global Discount ======
+        if (terms) {
+          const match = terms.match(/(\d+)\/(\d+),\s*n\/(\d+)/);
+          if (match) {
+            discountRate = parseFloat(match[1]); // e.g., 2 (%)
+            discountDays = parseInt(match[2], 10); // e.g., 10 (discount days)
+            netDays = parseInt(match[3], 10); // e.g., 30 (final due days)
           }
-          return round0(dppLocal * vatRate);
-        };
+        }
+
+        // ====== Installment Payment Handling ======
+        let totalPaid = 0;
+        let paymentAmount = [];
+        let currentPaymentLabel = null; // 'full_pay' | 'first_pay' | 'second_pay' | 'third_pay' | 'final_pay'
+
+        if (!paid_amount || paid_amount <= 0) {
+          alerts.push("Invalid paid amount. Please provide a valid positive number.");
+          return res.status(400).json({ message: alerts.join(" ") });
+        }
+
+        if (billing.payment_amount && Array.isArray(billing.payment_amount)) {
+          // Hitung total dari semua installment yang sudah ada
+          totalPaid = billing.payment_amount.reduce((sum, obj) => {
+            const value = Object.values(obj)[0];
+            return sum + Number(value || 0);
+          }, 0);
+          paymentAmount = [...billing.payment_amount];
+        }
 
         // Track payments & dates
-        const paymentAmountArr = Array.isArray(payment_amount) ? [...payment_amount] : [];
-        paymentAmountArr.push({ payment: payAmt });
-        const paymentDates = Array.isArray(payment_date) ? [...payment_date] : [];
-        paymentDates.push({ payment: today });
+        // const paymentAmountArr = Array.isArray(payment_amount) ? [...payment_amount] : [];
+        // paymentAmountArr.push({ payment: payAmt });
+        // paymentDates.push({ payment: today });
 
-        const totalPaid = paymentAmountArr.reduce((s, obj) => s + toNum(Object.values(obj)[0]), 0);
-        const newRemainBalance = Math.max(0, toNum(grand_total) - totalPaid);
-        const newInstallmentCount = (installment_count || 0) + 1;
-        const newStatus = newRemainBalance <= 0 ? "Completed" : "Pending";
+        // const totalPaid = paymentAmountArr.reduce((s, obj) => s + toNum(Object.values(obj)[0]), 0);
+        // const newRemainBalance = Math.max(0, toNum(grand_total) - totalPaid);
+        // const newInstallmentCount = (installment_count || 0) + 1;
+        // const newStatus = newRemainBalance <= 0 ? "Completed" : "Pending";
+
+        // === FULL PAYMENT HANDLING ===
+        if (payment_method === "Full Payment") {
+          if (paid_amount !== grand_total) {
+            alerts.push(`The amount you paid is insufficient for the Full Payment method. You must pay exactly ${grand_total.toLocaleString("id-ID")}.`);
+            return res.status(400).json({ message: alerts.join(" ") });
+          }
+
+          // Simpan pembayaran
+          paymentAmount.push({ full_pay: paid_amount });
+          installment_count = 1;
+          currentPaymentLabel = "full_pay";
+          alerts.push("Payment fully settled with Full Payment.");
+        }
+
+        // === PARTIAL PAYMENT HANDLING ===
+        else if (payment_method === "Partial Payment") {
+          const minDp = grand_total * 0.1;
+          hasFinalPay = paymentAmount.some((obj) => obj.hasOwnProperty("final_pay"));
+
+          // Jika installment_count belum ada (pembayaran pertama)
+          if (installment_count === 0) {
+            if (paid_amount === grand_total) {
+              alerts.push("The amount you paid is enough for Full Payment. Please change your payment method to 'Full Payment'.");
+              return res.status(400).json({ message: alerts.join(" ") });
+            }
+
+            if (paid_amount < minDp) {
+              alerts.push(`The DP amount entered is too small. Minimum 10% (${minDp.toLocaleString("id-ID")}) of the total bill is required.`);
+              return res.status(400).json({ message: alerts.join(" ") });
+            }
+
+            paymentAmount.push({ first_pay: paid_amount });
+            installment_count += 1;
+            currentPaymentLabel = "first_pay";
+            alerts.push(`First installment recorded: ${paid_amount.toLocaleString("id-ID")}.`);
+          }
+
+          // Jika installment_count = 1 dan belum final
+          else if (installment_count === 1 && !hasFinalPay) {
+            const totalAfterPayment = totalPaid + paid_amount;
+
+            const remaining = grand_total - totalPaid;
+
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment === remaining) {
+              paymentAmount.push({ final_pay: paid_amount });
+              currentPaymentLabel = "final_pay";
+              alerts.push("Final payment completed. Payment fully settled.");
+            } else {
+              paymentAmount.push({ second_pay: paid_amount });
+              installment_count += 1;
+              currentPaymentLabel = "second_pay";
+              alerts.push(`Second installment recorded: ${paid_amount.toLocaleString("id-ID")}. Remaining balance = ${(grand_total - totalAfterPayment).toLocaleString("id-ID")}.`);
+            }
+          }
+
+          // Jika installment_count = 2 dan belum final
+          else if (installment_count === 2 && !hasFinalPay) {
+            const totalAfterPayment = totalPaid + paid_amount;
+            const remaining = grand_total - totalPaid;
+
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment === remaining) {
+              paymentAmount.push({ final_pay: paid_amount });
+              currentPaymentLabel = "final_pay";
+              alerts.push("Final payment completed. Payment fully settled.");
+            } else {
+              paymentAmount.push({ third_pay: paid_amount });
+              installment_count += 1;
+              currentPaymentLabel = "third_pay";
+              alerts.push(`Third installment recorded: ${paid_amount.toLocaleString("id-ID")}. Remaining balance = ${(grand_total - totalAfterPayment).toLocaleString("id-ID")}.`);
+            }
+          }
+
+          // Jika installment_count = 3 dan belum final
+          else if (installment_count === 3 && !hasFinalPay) {
+            const totalAfterPayment = totalPaid + paid_amount;
+            const remaining = grand_total - totalPaid;
+
+            // Tambahkan validasi jika melebihi sisa
+            if (paid_amount > remaining) {
+              return res.status(404).json({
+                error: true,
+                message: `The payment amount exceeds the remaining balance of ${remaining.toLocaleString("id-ID")}. Please check again.`,
+              });
+            }
+
+            if (totalAfterPayment !== grand_total) {
+              alerts.push(`The amount you paid is not enough. This should be the final payment to complete your balance of ${remaining.toLocaleString("id-ID")}.`);
+              return res.status(400).json({ message: alerts.join(" ") });
+            }
+
+            paymentAmount.push({ final_pay: paid_amount });
+            currentPaymentLabel = "final_pay";
+            installment_count += 1;
+            alerts.push("Final payment completed. Payment fully settled.");
+          }
+
+          // Jika sudah ada final_pay
+          else if (hasFinalPay) {
+            alerts.push("This invoice has already been fully paid. No further payment is required.");
+            return res.status(400).json({ message: alerts.join(" ") });
+          }
+
+          // Jika lebih dari 4 kali cicilan
+          else if (installment_count > 3) {
+            alerts.push("Installments cannot exceed 3 installments + Final Payment.");
+            return res.status(400).json({ message: alerts.join(" ") });
+          }
+        }
+
+        // Setelah paymentAmount sukses ditentukan, baru catat paymentDates sinkron dengan paymentAmount
+        if (billing.payment_date && Array.isArray(billing.payment_date)) {
+          paymentDates = [...billing.payment_date];
+        }
+
+        if (payment_method === "Full Payment") {
+          paymentDates = [{ full_pay: currentDate }];
+        } else if (payment_method === "Partial Payment" && currentPaymentLabel) {
+          paymentDates.push({ [currentPaymentLabel]: currentDate });
+        }
+
+        // Perhitungan diskon dan pesan terkait jatuh tempo dilakukan menggunakan currentDate
+        if (discountDays && netDays) {
+          const invoiceDateObj = new Date(billing.invoice_date);
+          const paymentDateObj = new Date(currentDate);
+          const diffDays = Math.ceil((paymentDateObj - invoiceDateObj) / (1000 * 60 * 60 * 24));
+          const daysLeft = netDays - diffDays;
+
+          // Update flag setelah paymentAmount diperbarui
+          hasFinalPay = Array.isArray(paymentAmount) && paymentAmount.some((p) => Object.prototype.hasOwnProperty.call(p, "final_pay"));
+          const hasThirdPay = Array.isArray(paymentAmount) && paymentAmount.some((p) => Object.prototype.hasOwnProperty.call(p, "third_pay"));
+
+          // Discount eligibility
+          if (diffDays <= discountDays) {
+            discountPayment = (total * discountRate) / 100;
+            alerts.push(`You are eligible for a ${discountRate}% discount. ${discountDays - diffDays} days left to claim it.`);
+          }
+
+          // Reminder messages for partial payment
+          if (payment_method === "Partial Payment" && !hasFinalPay) {
+            if (daysLeft > 0) {
+              alerts.push(`Partial payment recorded. You have ${daysLeft} day${daysLeft > 1 ? "s" : ""} left before the due date (n/${netDays}).`);
+            } else if (hasThirdPay && daysLeft <= 0) {
+              alerts.push("Partial payment recorded (third pay). Invoice is already overdue — final payment is required soon.");
+            }
+          }
+        }
+
+        // Hitung total pembayaran setelah update untuk menentukan remaining balance
+        const totalPaidUpdated = Array.isArray(paymentAmount) ? paymentAmount.reduce((sum, obj) => sum + Number(Object.values(obj)[0] || 0), 0) : 0;
+
+        const newRemainBalance = Number(grand_total) - Number(totalPaidUpdated);
+
+        // Simpan kembali data ke database (payment_amount, installment_count, payment_date, dan remain_balance)
+        const { error: updateBillingError } = await supabase
+          .from("receivable_summary_sales")
+          .update({
+            payment_amount: paymentAmount,
+            installment_count: installment_count,
+            payment_date: paymentDates,
+            remain_balance: newRemainBalance,
+          })
+          .eq("id", billing.id);
+
+        if (updateBillingError) {
+          return res.status(500).json({
+            error: true,
+            message: "Failed to update receivable summary: " + updateBillingError.message,
+          });
+        }
+
+        // ====== Total Qty Calculation (for proportional discount/penalty allocation) ======
+        const totalQty = itemsRaw.reduce((sum, i) => sum + (i.qty - (i.return_unit || 0)), 0);
 
         // Create journal entry
         const { data: journal, error: journalError } = await supabase
           .from("journal_entries")
           .insert({
-            transaction_number: `REC-${number}-${newInstallmentCount}`,
+            transaction_number: `REC-${number}-${installment_count}`,
             description: `Journal for Receivable Summary ${billingId}`,
             user_id: user.id,
             entry_date: today,
@@ -743,67 +973,164 @@ module.exports = async (req, res) => {
           });
         }
 
-        const lineEntries = [];
+        const ppnRate = Number(billing.ppn_percentage) / 100;
+        const ppnPct = Number(billing.ppn_percentage) || 0;
 
-        // Main payment journal
-        const vatOnPayment = computeVat(payAmt);
+        // Apply special PPN rules for 11% / 12% consistency with Billing Order logic
+        if (billing.tax_method === "Before Calculate") {
+          if (ppnPct === 11) {
+            // Treat total as DPP when ppn_percentage === 11
+            dpp = Number(billing.total) || 0;
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else if (ppnPct === 12) {
+            // Use 11/12 * total as DPP when ppn_percentage === 12
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else {
+            // Fallback/legacy behaviour
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          }
+        } else if (billing.tax_method === "After Calculate") {
+          if (ppnPct === 11) {
+            // Compute DPP by dividing by (1 + ppnRate) when 11%
+            dpp = Number(billing.total || 0) / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else if (ppnPct === 12) {
+            // Use 11/12 * total as DPP when ppn_percentage === 12
+            dpp = (11 / 12) * Number(billing.total || 0);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          } else {
+            // Fallback behaviour
+            dpp = Number(billing.total || 0) / (1 + ppnRate);
+            ppn = Math.round(ppnRate * dpp);
+            pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+          }
+        }
 
-        // Debit Cash/Bank
-        lineEntries.push({
-          journal_entry_id: journal.id,
-          account_code: payment_COA,
-          description: payment_name,
-          debit: round0(payAmt) + round0(vatOnPayment),
-          credit: 0,
-          user_id: user.id,
-          transaction_number: journal.transaction_number,
-        });
-
-        // Credit AR
-        lineEntries.push({
-          journal_entry_id: journal.id,
-          account_code: customer_COA,
-          description: `Account Receivable - ${customer_name}`,
-          debit: 0,
-          credit: round0(payAmt),
-          user_id: user.id,
-          transaction_number: journal.transaction_number,
-        });
-
-        // Credit VAT Out
-        if (vatOnPayment > 0) {
+        // ====== Journal Entries: Full Payment ======
+        if (payment_method === "Full Payment") {
+          // Debit Cash/Bank
           lineEntries.push({
             journal_entry_id: journal.id,
-            account_code: "700101",
-            description: "VAT Out",
-            debit: 0,
-            credit: round0(vatOnPayment),
+            account_code: payment_COA,
+            description: payment_name,
+            debit: round0(total) + round0(ppn),
+            credit: 0,
             user_id: user.id,
             transaction_number: journal.transaction_number,
           });
-        }
 
-        // Discount handling based on terms
-        let discountPayment = 0;
-        let discountRate = 0;
-        let discountDays = 0;
-        if (terms) {
-          const match = terms.match(/(\d+)\/(\d+),\s*n\/(\d+)/);
-          if (match) {
-            discountRate = parseFloat(match[1]);
-            discountDays = parseInt(match[2], 10);
+          // Credit AR
+          lineEntries.push({
+            journal_entry_id: journal.id,
+            account_code: customer_COA,
+            description: `Account Receivable - ${customer_name}`,
+            debit: 0,
+            credit: round0(total),
+            user_id: user.id,
+            transaction_number: journal.transaction_number,
+          });
+
+          // Credit VAT Out
+          if (ppn > 0) {
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: "700101",
+              description: "VAT Out",
+              debit: 0,
+              credit: round0(ppn),
+              user_id: user.id,
+              transaction_number: journal.transaction_number,
+            });
           }
         }
 
-        if (discountRate > 0 && invoice_date) {
-          const invDate = new Date(invoice_date);
-          const payDate = new Date(today);
-          const diffDays = Math.ceil((payDate - invDate) / (1000 * 60 * 60 * 24));
-          if (discountDays === 0 || diffDays <= discountDays) {
-            discountPayment = (payAmt * discountRate) / 100;
+        // ====== Journal Entries: Partial Payment ======
+        else if (payment_method === "Partial Payment") {
+          // Example: partialAmount is the actual paid amount
+          const partialAmount = paid_amount || 0;
+
+          if (billing.tax_method === "Before Calculate") {
+            if (ppnPct === 11) {
+              dpp = Number(partialAmount) || 0;
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else if (ppnPct === 12) {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            }
+          } else if (billing.tax_method === "After Calculate") {
+            if (ppnPct === 11) {
+              dpp = Number(partialAmount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else if (ppnPct === 12) {
+              dpp = (11 / 12) * Number(partialAmount || 0);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            } else {
+              dpp = Number(partialAmount || 0) / (1 + ppnRate);
+              ppn = Math.round(ppnRate * dpp);
+              pph = Math.round((dpp * Number(billing.pph_percentage)) / 100);
+            }
+          }
+
+          if (partialAmount > 0) {
+            // Debit Cash/Bank
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: payment_COA,
+              description: payment_name,
+              debit: round0(partialAmount) + round0(ppn),
+              credit: 0,
+              user_id: user.id,
+              transaction_number: journal.transaction_number,
+            });
+
+            // Credit AR
+            lineEntries.push({
+              journal_entry_id: journal.id,
+              account_code: customer_COA,
+              description: `Account Receivable - ${customer_name}`,
+              debit: 0,
+              credit: round0(partialAmount),
+              user_id: user.id,
+              transaction_number: journal.transaction_number,
+            });
+
+            // Credit VAT Out
+            if (ppn > 0) {
+              lineEntries.push({
+                journal_entry_id: journal.id,
+                account_code: "700101",
+                description: "VAT Out",
+                debit: 0,
+                credit: round0(ppn),
+                user_id: user.id,
+                transaction_number: journal.transaction_number,
+              });
+            }
+          } else {
+            alerts.push("Warning: Partial payment amount is missing or zero.");
           }
         }
 
+        console.log("DEBUG >> discountPayment:", discountPayment);
+
+        let totalItemDisc = 0;
+
+        // ====== Journal Entries: Discount Payment Allocation ======
         if (discountPayment > 0) {
           const vatOnDiscount = computeVat(discountPayment);
 
@@ -843,25 +1170,30 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Persist payment & status updates
-        const { error: updateBillingError } = await supabase
-          .from("receivable_summary_sales")
-          .update({
-            payment_amount: paymentAmountArr,
-            payment_date: paymentDates,
-            remain_balance: newRemainBalance,
-            status: newStatus,
-            installment_count: newInstallmentCount,
-            paid_amount: payAmt,
-          })
-          .eq("id", billing.id);
+        // ====== Update status berdasarkan metode pembayaran ======
+        let newStatus = billing.status; // default tetap status lama
 
-        if (updateBillingError) {
+        if (payment_method === "Full Payment") {
+          newStatus = "Completed";
+        } else if (payment_method === "Partial Payment") {
+          if (hasFinalPay) {
+            newStatus = "Completed";
+          } else {
+            newStatus = "Pending";
+          }
+        }
+
+        // Update status di database
+        const { error: updateStatusError } = await supabase.from("receivable_summary_sales").update({ status: newStatus }).eq("id", billing.id);
+
+        if (updateStatusError) {
           return res.status(500).json({
             error: true,
-            message: "Failed to update receivable summary: " + updateBillingError.message,
+            message: "Failed to update receivable status: " + updateStatusError.message,
           });
         }
+
+        console.log(`DEBUG >> Updated billing status to: ${newStatus}`);
 
         // Insert journal lines
         const { error: insertError } = await supabase.from("journal_entry_lines").insert(lineEntries);
@@ -997,7 +1329,7 @@ module.exports = async (req, res) => {
 
           // Loop through items to calculate COGS and get descriptions
           for (const item of items) {
-            const { coa, item_name, sku, qty, unit, price, disc_item, disc_item_type, return_unit } = item;
+            const { coa, item_coa_label, item_name, sku, qty, unit, price, disc_item, disc_item_type, return_unit } = item;
 
             // Look up product to get cogs_COA
             const { data: product, error: productErr } = await supabase.from("products").select("cogs_COA").eq("name", item_name).maybeSingle();
@@ -1062,7 +1394,7 @@ module.exports = async (req, res) => {
             // Add line entry for stock debit (item COA)
             lineEntries.push({
               journal_entry_id: journal.id,
-              account_code: coa,
+              account_code: coa || (item_coa_label ? String(item_coa_label).split(" - ")[0].trim() : null),
               description: `Stock - ${item_name}`,
               debit: 0,
               credit: Math.round(net),
@@ -1113,7 +1445,7 @@ module.exports = async (req, res) => {
 
           // Loop through items to calculate COGS and get descriptions
           for (const item of items) {
-            const { coa, item_name, sku, qty, unit, price, disc_item, disc_item_type, return_unit } = item;
+            const { coa, item_coa_label, item_name, sku, qty, unit, price, disc_item, disc_item_type, return_unit } = item;
 
             // Look up product to get cogs_COA
             const { data: product, error: productErr } = await supabase.from("products").select("cogs_COA").eq("name", item_name).maybeSingle();
@@ -1178,7 +1510,7 @@ module.exports = async (req, res) => {
             // Add line entry for stock debit (item COA)
             lineEntries.push({
               journal_entry_id: journal.id,
-              account_code: coa,
+              account_code: coa || (item_coa_label ? String(item_coa_label).split(" - ")[0].trim() : null),
               description: `Stock - ${item_name}`,
               debit: 0,
               credit: Math.round(net),
@@ -1232,14 +1564,36 @@ module.exports = async (req, res) => {
           });
         }
 
-        // Insert journal lines
-        const { error: insertLinesErr } = await supabase.from("journal_entry_lines").insert(lineEntries);
+        // Insert journal lines (skip if none, and sanitize numeric fields)
+        if (!Array.isArray(lineEntries) || lineEntries.length === 0) {
+          // nothing to insert
+        } else {
+          const sanitizedLines = lineEntries.map((l) => ({
+            ...l,
+            debit: l.debit === "" || l.debit === null ? null : Number(l.debit) || 0,
+            credit: l.credit === "" || l.credit === null ? null : Number(l.credit) || 0,
+          }));
 
-        if (insertLinesErr) {
-          return res.status(500).json({
-            error: true,
-            message: "Failed to insert journal lines: " + insertLinesErr.message,
-          });
+          // Validate account_code exists on all lines to avoid NOT NULL DB errors
+          const invalidLines = sanitizedLines.filter((l) => l.account_code === null || l.account_code === undefined || String(l.account_code).trim() === "");
+          if (invalidLines.length > 0) {
+            console.error("Journal lines missing account_code:", JSON.stringify(invalidLines));
+            return res.status(400).json({
+              error: true,
+              message: `Some journal lines are missing account_code (count=${invalidLines.length}). Please check items or COA mapping.`,
+              details: invalidLines.slice(0, 5),
+            });
+          }
+
+          const { error: insertLinesErr } = await supabase.from("journal_entry_lines").insert(sanitizedLines);
+
+          if (insertLinesErr) {
+            console.error("Failed to insert journal lines:", insertLinesErr, "payload:", JSON.stringify(sanitizedLines));
+            return res.status(500).json({
+              error: true,
+              message: "Failed to insert journal lines: " + (insertLinesErr.message || "unknown error"),
+            });
+          }
         }
 
         // Update the invoice status to "Completed"
@@ -4565,7 +4919,7 @@ module.exports = async (req, res) => {
             }
 
             if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
-              const billingOrderNumber = `ORD-${existingRequest.number}`;
+              const billingOrderNumber = existingRequest.number;
               const { error: deleteError } = await supabase.from("billing_orders_sales").delete().eq("number", billingOrderNumber);
 
               if (deleteError) {
@@ -5031,10 +5385,46 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Invoice ID is required" });
         }
 
-        const { data: sale, error: fetchError } = await supabase.from("invoices_sales").select("id").eq("id", id);
+        const { data: sale, error: fetchError } = await supabase.from("invoices_sales").select("id, status, number").eq("id", id).single();
 
         if (fetchError || !sale || sale.length === 0) {
           return res.status(404).json({ error: true, message: "Invoice not found" });
+        }
+
+        if (sale.status === "Completed") {
+          const { data: billingInvoices, error: billingError } = await supabase.from("receivable_summary_sales").select("id, number, status").eq("number", sale.number);
+
+          console.log("Fetched receivable summary:", billingInvoices, "Billing error:", billingError);
+
+          if (billingError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to check receivable summary in sales: " + billingError.message,
+            });
+          }
+
+          if (billingInvoices[0].status === "Completed" || billingInvoices[0].status === "Pending") {
+            return res.status(200).json({
+              error: true,
+              message: "Receivable Summary is already Completed/Already Paid in Installment",
+            });
+          }
+
+          if (billingInvoices && billingInvoices.length > 0 && billingInvoices[0].status === "Unpaid") {
+            const invoiceNumber = `INV-${sale.number}`;
+
+            const { error: deleteError } = await supabase.from("receivable_summary_sales").delete().eq("number", sale.number);
+
+            if (deleteError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+            }
+
+            const { error: deleteJournalError } = await supabase.from("journal_entries").delete().eq("transaction_number", invoiceNumber);
+
+            if (deleteJournalError) {
+              return res.status(500).json({ error: true, message: "Failed to delete related journal: " + deleteJournalError.message });
+            }
+          }
         }
 
         const { error: deleteError } = await supabase.from("invoices_sales").delete().eq("id", id);
@@ -5220,10 +5610,43 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Order ID is required" });
         }
 
-        const { data: sale, error: fetchError } = await supabase.from("orders_sales").select("id").eq("id", id);
+        const { data: sale, error: fetchError } = await supabase.from("orders_sales").select("id, status, number").eq("id", id).single();
 
         if (fetchError || !sale || sale.length === 0) {
           return res.status(404).json({ error: true, message: "Order not found" });
+        }
+
+        if (sale.status === "Completed") {
+          const { data: billingOrders, error: billingError } = await supabase.from("billing_orders_sales").select("id, number, status").eq("number", sale.number);
+
+          console.log("Fetched billing orders:", billingOrders, "Billing error:", billingError);
+
+          if (billingError) {
+            return res.status(500).json({
+              error: true,
+              message: "Failed to check billing orders in sales: " + billingError.message,
+            });
+          }
+
+          if (billingOrders[0].status === "Completed") {
+            return res.status(200).json({
+              error: true,
+              message: "Billing Order is already Completed",
+            });
+          }
+
+          if (billingOrders && billingOrders.length > 0 && billingOrders[0].status !== "Completed") {
+            const billingOrderNumber = sale.number;
+
+            const { error: deleteError } = await supabase.from("billing_orders_sales").delete().eq("number", billingOrderNumber);
+
+            if (deleteError) {
+              return res.status(500).json({
+                error: true,
+                message: "Failed to delete related billing orders in sales: " + deleteError.message,
+              });
+            }
+          }
         }
 
         const { error: deleteError } = await supabase.from("orders_sales").delete().eq("id", id);
@@ -5283,10 +5706,18 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: true, message: "Quotation ID is required" });
         }
 
-        const { data: sale, error: fetchError } = await supabase.from("quotations_sales").select("id").eq("id", id);
+        const { data: sale, error: fetchError } = await supabase.from("quotations_sales").select("id, status, number").eq("id", id).single();
 
         if (fetchError || !sale || sale.length === 0) {
           return res.status(404).json({ error: true, message: "Quotation not found" });
+        }
+
+        if (sale.status === "Completed") {
+          const { error: deleteError } = await supabase.from("offers_sales").delete().eq("number", sale.number);
+
+          if (deleteError) {
+            return res.status(500).json({ error: true, message: "Failed to delete related data: " + deleteError.message });
+          }
         }
 
         const { error: deleteError } = await supabase.from("quotations_sales").delete().eq("id", id);
