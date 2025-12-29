@@ -2294,6 +2294,13 @@ module.exports = async (req, res) => {
 
           const total_cogs_sum = (salesRows || []).reduce((s, r) => s + toNum(r.total_sale), 0);
 
+          // fallback: if sum is zero, try to use previous inventory's total_cogs or lastRec.total_cogs
+          let finalTotalCogs = Math.round(total_cogs_sum);
+          if (finalTotalCogs === 0) {
+            const fallbackValue = toNum(prevInventory?.total_cogs) || toNum(lastRec?.total_cogs) || 0;
+            finalTotalCogs = Math.round(fallbackValue);
+          }
+
           const randomNum = Math.floor(100000 + Math.random() * 900000);
           const insertData = {
             number: `ADJ-${randomNum}`,
@@ -2317,7 +2324,7 @@ module.exports = async (req, res) => {
             price_sale: Math.round(price_sale),
             total_sale: 0,
             type: "Adjustment",
-            total_cogs: Math.round(total_cogs_sum),
+            total_cogs: finalTotalCogs,
             total_qty: total_qty,
             total_stock: Math.round(newTotalStock),
             avg_per_unit: Math.round(newAvgPerUnit),
