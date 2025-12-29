@@ -2287,6 +2287,13 @@ module.exports = async (req, res) => {
           if (insertLinesErr) return res.status(500).json({ error: true, message: "Failed to insert journal lines: " + insertLinesErr.message });
 
           // insert inventory adjustment row
+          // compute total_cogs as sum of total_sale for the month
+          const { data: salesRows, error: salesErr } = await supabase.from("inventory").select("total_sale").eq("stock_name", stock_name).gte("inventory_date", `${yearMonth}-01`).lte("inventory_date", endOfMonth);
+
+          if (salesErr) return res.status(500).json({ error: true, message: "Failed to compute total_cogs: " + salesErr.message });
+
+          const total_cogs_sum = (salesRows || []).reduce((s, r) => s + toNum(r.total_sale), 0);
+
           const randomNum = Math.floor(100000 + Math.random() * 900000);
           const insertData = {
             number: `ADJ-${randomNum}`,
@@ -2310,7 +2317,7 @@ module.exports = async (req, res) => {
             price_sale: Math.round(price_sale),
             total_sale: 0,
             type: "Adjustment",
-            total_cogs: 0,
+            total_cogs: Math.round(total_cogs_sum),
             total_qty: total_qty,
             total_stock: Math.round(newTotalStock),
             avg_per_unit: Math.round(newAvgPerUnit),
