@@ -2139,6 +2139,203 @@ module.exports = async (req, res) => {
         return res.status(200).json({ error: false, data });
       }
 
+      case "stockAdjustment": {
+        if (method !== "POST") {
+          return res.status(405).json({
+            error: true,
+            message: "Method not allowed. Use POST for stockAdjustment.",
+          });
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+          return res.status(401).json({ error: true, message: "No authorization header provided" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const supabase = getSupabaseWithToken(token);
+
+        // === GET USER ===
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) {
+          return res.status(401).json({ error: true, message: "Invalid or expired token" });
+        }
+
+        const { stock_name, inventory_date, description, nett_purchase } = req.body;
+
+        if (!stock_name || !inventory_date || nett_purchase === undefined || nett_purchase === null) {
+          return res.status(400).json({ error: true, message: "Missing required fields: stock_name, inventory_date, nett_purchase" });
+        }
+
+        const toNum = (v) => (v === null || v === undefined ? 0 : Number(v) || 0);
+        const round0 = (v) => Math.round(toNum(v));
+
+        try {
+          const yearMonth = String(inventory_date).slice(0, 7); // YYYY-MM
+          const [__y, __m] = yearMonth.split("-");
+          const endDay = new Date(Number(__y), Number(__m), 0).getDate();
+          const endOfMonth = `${yearMonth}-${String(endDay).padStart(2, "0")}`;
+
+          // earliest Purchase in month for nett quantity info
+          const { data: firstPurchase, error: firstErr } = await supabase
+            .from("inventory")
+            .select("*")
+            .eq("stock_name", stock_name)
+            .gte("inventory_date", `${yearMonth}-01`)
+            .lte("inventory_date", endOfMonth)
+            .eq("type", "Purchase")
+            .order("inventory_date", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          if (firstErr) return res.status(500).json({ error: true, message: "Failed to fetch purchase info: " + firstErr.message });
+          if (!firstPurchase) return res.status(404).json({ error: true, message: "No Purchase transaction found for this stock in the given month" });
+
+          const quantity_purchase = toNum(firstPurchase.quantity_purchase);
+          const return_purchase = toNum(firstPurchase.return_purchase);
+          const denom = quantity_purchase - return_purchase;
+          if (!denom) return res.status(400).json({ error: true, message: "Cannot compute nett_price_item: quantity_purchase - return_purchase is zero" });
+
+          const nettPriceItem = toNum(nett_purchase) / denom;
+
+          // last transaction in the month for price_sale, total_qty, total_stock
+          const { data: lastRec, error: lastErr } = await supabase
+            .from("inventory")
+            .select("*")
+            .eq("stock_name", stock_name)
+            .gte("inventory_date", `${yearMonth}-01`)
+            .lte("inventory_date", endOfMonth)
+            .order("inventory_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (lastErr) return res.status(500).json({ error: true, message: "Failed to fetch last inventory record: " + lastErr.message });
+
+          const price_sale = toNum(lastRec?.avg_per_unit || 0);
+          const total_qty = toNum(lastRec?.total_qty || 0);
+          const prev_total_stock = toNum(lastRec?.total_stock || 0);
+
+          const newTotalStock = prev_total_stock + toNum(nett_purchase);
+          if (!total_qty) return res.status(400).json({ error: true, message: "Cannot compute avg_per_unit: total_qty from last record is zero or missing" });
+          const newAvgPerUnit = newTotalStock / total_qty;
+
+          // fetch previous inventory record before the adjustment date
+          const { data: prevInventory, error: prevInvErr } = await supabase
+            .from("inventory")
+            .select("*")
+            .eq("stock_name", stock_name)
+            .lt("inventory_date", inventory_date)
+            .order("inventory_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (prevInvErr) return res.status(500).json({ error: true, message: "Failed to fetch previous inventory record: " + prevInvErr.message });
+
+          // create journal entry (include month name and year in description)
+          const ymToken = yearMonth.replace("-", "");
+          const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+          const monthIndex = Number(__m) - 1;
+          const monthName = monthNames[monthIndex] || __m;
+          const journalDescription = `Journal for Adjustment Stock ${stock_name} (${monthName} ${__y})`;
+
+          const { data: journal, error: journalError } = await supabase
+            .from("journal_entries")
+            .insert({
+              transaction_number: `ADJUSTMENT-${ymToken}`,
+              description: journalDescription,
+              user_id: user.id,
+              entry_date: new Date().toISOString().split("T")[0],
+              created_at: new Date(),
+            })
+            .select()
+            .single();
+
+          if (journalError) return res.status(500).json({ error: true, message: "Failed to create journal entry: " + journalError.message });
+
+          // determine COA
+          const { data: prod, error: prodErr } = await supabase.from("products").select("cogs_COA").eq("name", stock_name).maybeSingle();
+          const cogsCOA = prod?.cogs_COA || "500101-9-1";
+
+          const { data: stockRec, error: stockErr } = await supabase.from("stock").select("stock_COA").eq("name", stock_name).maybeSingle();
+          const stockCOA = stockRec?.stock_COA || null;
+          if (!stockCOA) return res.status(400).json({ error: true, message: `Stock COA not found for stock_name ${stock_name}. Please ensure stock mapping exists.` });
+
+          const lineEntries = [];
+          const amt = round0(nett_purchase);
+          const tranNo = `ADJUSTMENT-${ymToken}`;
+
+          if (amt === 0) return res.status(400).json({ error: true, message: "Adjustment amount cannot be zero" });
+
+          if (toNum(nett_purchase) < 0) {
+            // decrease stock value: Debit COGS, Credit Stock
+            lineEntries.push({ journal_entry_id: journal.id, account_code: cogsCOA, description: `COGS Adjustment - ${stock_name}`, debit: Math.abs(amt), credit: 0, user_id: user.id, transaction_number: tranNo });
+            lineEntries.push({ journal_entry_id: journal.id, account_code: stockCOA, description: `Stock - ${stock_name}`, debit: 0, credit: Math.abs(amt), user_id: user.id, transaction_number: tranNo });
+          } else {
+            // increase stock value: Debit Stock, Credit COGS
+            lineEntries.push({ journal_entry_id: journal.id, account_code: stockCOA, description: `Stock - ${stock_name}`, debit: amt, credit: 0, user_id: user.id, transaction_number: tranNo });
+            lineEntries.push({ journal_entry_id: journal.id, account_code: cogsCOA, description: `COGS Adjustment - ${stock_name}`, debit: 0, credit: amt, user_id: user.id, transaction_number: tranNo });
+          }
+
+          const invalidLines = lineEntries.filter((l) => l.account_code === null || l.account_code === undefined || String(l.account_code).trim() === "");
+          if (invalidLines.length > 0) return res.status(400).json({ error: true, message: "Some journal lines are missing account_code. Please check stock/product COA mapping.", details: invalidLines.slice(0, 5) });
+
+          const sanitizedLines = lineEntries.map((l) => ({ ...l, debit: l.debit === "" || l.debit === null ? null : Number(l.debit) || 0, credit: l.credit === "" || l.credit === null ? null : Number(l.credit) || 0 }));
+          const { error: insertLinesErr } = await supabase.from("journal_entry_lines").insert(sanitizedLines);
+          if (insertLinesErr) return res.status(500).json({ error: true, message: "Failed to insert journal lines: " + insertLinesErr.message });
+
+          // insert inventory adjustment row
+          const randomNum = Math.floor(100000 + Math.random() * 900000);
+          const insertData = {
+            number: `ADJ-${randomNum}`,
+            user_id: user.id,
+            stock_name,
+            inventory_date,
+            description: description || `Adjustment for ${stock_name}`,
+            quantity_purchase: 0,
+            stock_movement: 0,
+            price_purchase: 0,
+            return_purchase: 0,
+            quantity_sale: 0,
+            return_sale: 0,
+            disc_per_item: 0,
+            freight_in: 0,
+            insurance: 0,
+            disc_payment: 0,
+            nett_purchase: round0(nett_purchase),
+            nett_quantity: 0,
+            nett_price_item: Math.round(nettPriceItem),
+            price_sale: Math.round(price_sale),
+            total_sale: 0,
+            type: "Adjustment",
+            total_cogs: 0,
+            total_qty: total_qty,
+            total_stock: Math.round(newTotalStock),
+            avg_per_unit: Math.round(newAvgPerUnit),
+            created_at: new Date().toISOString(),
+          };
+
+          const { error: insertInvErr } = await supabase.from("inventory").insert([insertData]);
+          if (insertInvErr) return res.status(500).json({ error: true, message: "Failed to insert inventory adjustment: " + insertInvErr.message });
+
+          return res.status(201).json({
+            error: false,
+            message: "Stock adjustment applied successfully",
+            data: {
+              journal,
+              lines: sanitizedLines,
+              inventory: insertData,
+              previous_inventory: prevInventory || null,
+            },
+          });
+        } catch (e) {
+          console.error("stockAdjustment error", e);
+          return res.status(500).json({ error: true, message: "Internal server error in stockAdjustment" });
+        }
+      }
+
       case "getStockMovement": {
         if (method !== "GET") {
           return res.status(405).json({ error: true, message: "Method not allowed. Use GET for getStockMovement." });
